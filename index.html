@@ -444,6 +444,14 @@ transition: all 0.4s ease;
     z-index: 500;
     display: none;
 }
+
+/* ALIGN FLASH */
+@keyframes alignFlash {
+    0% { box-shadow: 0 0 0px transparent; }
+    50% { box-shadow: 0 0 20px #00ffcc, inset 0 0 15px rgba(0,255,204,0.3); }
+    100% { box-shadow: 0 0 0px transparent; }
+}
+.align-flash { animation: alignFlash 0.5s ease; }
 </style>
 </head>
 <body>
@@ -663,12 +671,12 @@ let agentChoices = [];
 let selectedAgents = [];
 
 // State Variables
-let playerAgents = []; // My Agents
-let enemyAgents = [];  // Opponent Agents
-let hand = [];         // My Hand
-let specialHand = [];  // My Specials
-let placedCards = [null,null,null]; // My Placed Cards
-let enemyPlacedCards = [null,null,null]; // Opponent Placed Cards
+let playerAgents = [];
+let enemyAgents = [];
+let hand = [];
+let specialHand = [];
+let placedCards = [null,null,null];
+let enemyPlacedCards = [null,null,null];
 
 // Logic Variables
 let actionDeck = [];
@@ -681,7 +689,10 @@ let selectedCardIndex = null;
 let selectedSpecialIndex = null;
 let bonusDraw = 0;
 let isPlacingCard = false;
-let confirmedTurn = false; // Local lock
+let confirmedTurn = false;
+
+// Track if alignment is in progress to prevent listener conflicts
+let alignmentInProgress = false;
 
 // =====================
 // UTILITY FUNCTIONS
@@ -719,7 +730,7 @@ function isValidSwap(a, b) {
 function canPlaceCard(i) {
     const { playerAlive, enemyAlive, p, e } = getAliveCounts();
     if (!playerAlive[i]) return false;
-    if (!enemyAlive[i]) return false; // Must face enemy
+    if (!enemyAlive[i]) return false;
     return true;
 }
 function isTurnValid() {
@@ -728,6 +739,115 @@ function isTurnValid() {
     if (p === 2 && e === 2) { for (let i = 0; i < 3; i++) if (enemyAlive[i] && !placedCards[i]) return false; }
     if (p === 2 && e === 1) { for (let i = 0; i < 3; i++) if (enemyAlive[i] && !placedCards[i]) return false; }
     return true;
+}
+
+// =====================
+// AUTO-ALIGN SYSTEM
+// Ensures no alive agent faces a dead lane after combat
+// Deterministic: both players compute the same result
+// =====================
+function animateAgentMove(fromIndex, toIndex, isPlayer = true) {
+    let lanes = document.getElementById("lanes").children;
+    let fromSlot = lanes[fromIndex].children[isPlayer ? 3 : 0];
+    let toSlot = lanes[toIndex].children[isPlayer ? 3 : 0];
+
+    let agentEl = fromSlot.querySelector("img");
+    if (!agentEl) return;
+
+    let fromRect = agentEl.getBoundingClientRect();
+    let toRect = toSlot.getBoundingClientRect();
+
+    let dx = toRect.left - fromRect.left;
+    let dy = toRect.top - fromRect.top;
+
+    agentEl.style.transition = "transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)";
+    agentEl.style.transform = `translate(${dx}px, ${dy}px)`;
+    agentEl.style.zIndex = "100";
+    agentEl.style.position = "relative";
+
+    setTimeout(() => {
+        agentEl.style.transition = "";
+        agentEl.style.transform = "";
+        agentEl.style.zIndex = "";
+        agentEl.style.position = "";
+    }, 420);
+}
+
+function autoAlignAgents() {
+    // Collect alive agents preserving their current order
+    let alivePlayer = playerAgents.filter(a => a && a.hp > 0);
+    let aliveEnemy = enemyAgents.filter(a => a && a.hp > 0);
+
+    // Pad with dead placeholders to maintain 3 slots
+    while (alivePlayer.length < 3) alivePlayer.push({ hp: 0 });
+    while (aliveEnemy.length < 3) aliveEnemy.push({ hp: 0 });
+
+    // Check if alignment is actually needed (compare by agent name)
+    let needsAlignment = false;
+    for (let i = 0; i < 3; i++) {
+        let pOld = (playerAgents[i] && playerAgents[i].hp > 0) ? playerAgents[i].name : null;
+        let pNew = (alivePlayer[i] && alivePlayer[i].hp > 0) ? alivePlayer[i].name : null;
+        let eOld = (enemyAgents[i] && enemyAgents[i].hp > 0) ? enemyAgents[i].name : null;
+        let eNew = (aliveEnemy[i] && aliveEnemy[i].hp > 0) ? aliveEnemy[i].name : null;
+        if (pOld !== pNew || eOld !== eNew) {
+            needsAlignment = true;
+            break;
+        }
+    }
+
+    // Clear placed cards regardless (end of turn cleanup)
+    placedCards = [null, null, null];
+    enemyPlacedCards = [null, null, null];
+
+    if (!needsAlignment) return Promise.resolve(false);
+
+    alignmentInProgress = true;
+
+    let lanes = document.getElementById("lanes").children;
+
+    // Animate player agent movements
+    playerAgents.forEach((agent, oldIdx) => {
+        if (agent && agent.hp > 0) {
+            let newIdx = alivePlayer.indexOf(agent);
+            if (newIdx !== oldIdx) {
+                animateAgentMove(oldIdx, newIdx, true);
+            }
+        }
+    });
+
+    // Animate enemy agent movements
+    enemyAgents.forEach((agent, oldIdx) => {
+        if (agent && agent.hp > 0) {
+            let newIdx = aliveEnemy.indexOf(agent);
+            if (newIdx !== oldIdx) {
+                animateAgentMove(oldIdx, newIdx, false);
+            }
+        }
+    });
+
+    return new Promise(resolve => {
+        setTimeout(() => {
+            playerAgents = alivePlayer;
+            enemyAgents = aliveEnemy;
+
+            updateAgentsUI();
+            updateEnemyUI();
+            updateBoardUI();
+
+            // Flash the active lanes to indicate alignment
+            let newLanes = document.getElementById("lanes").children;
+            let { playerAlive, enemyAlive } = getAliveCounts();
+            for (let i = 0; i < 3; i++) {
+                if (playerAlive[i] && enemyAlive[i]) {
+                    newLanes[i].classList.add("align-flash");
+                    setTimeout(() => newLanes[i].classList.remove("align-flash"), 500);
+                }
+            }
+
+            alignmentInProgress = false;
+            resolve(true);
+        }, 450);
+    });
 }
 
 // =====================
@@ -765,7 +885,6 @@ function selectAgent(agent, div) {
         div.classList.add("selected");
     }
     
-    // Enable/Disable Buttons
     const ready = selectedAgents.length === 3;
     document.getElementById('create-btn').disabled = !ready;
     document.getElementById('join-btn').disabled = !ready;
@@ -788,7 +907,6 @@ window.createRoom = function() {
     roomRef = newRoomRef;
     const roomId = roomRef.key;
 
-    // Initialize gameState immediately
     const initialState = {
         status: "waiting",
         host: { agents: playerAgents },
@@ -814,7 +932,6 @@ window.joinRoom = function() {
     const roomId = document.getElementById('join-code-input').value.trim();
     if (!roomId) return alert("Enter Room Code!");
 
-    // Construct the reference correctly: rooms/roomId
     const r = ref(db, 'rooms/' + roomId);
     
     get(r).then(snapshot => {
@@ -824,14 +941,13 @@ window.joinRoom = function() {
 
         isHost = false;
         myId = "p2";
-        roomRef = r; // Store the reference to rooms/roomId
+        roomRef = r;
 
         playerAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
         enemyAgents = data.host.agents; 
         generateSpecialHand();
         initDecks();
 
-        // Update database with guest info and initialize gameState for P2
         const updates = {
             guest: { agents: playerAgents },
             status: "playing",
@@ -855,7 +971,6 @@ function listenForGameStart() {
         const data = snapshot.val();
         if (!data) return;
         
-        // If I am Host and Guest joined
         if (isHost && data.status === "playing" && !enemyAgents.length) {
             enemyAgents = data.guest.agents;
             startGameLocal();
@@ -865,8 +980,6 @@ function listenForGameStart() {
 }
 
 function listenForUpdates() {
-    // FIXED: Use child() instead of string concatenation
-    // This points to rooms/<id>/gameState
     const gameStateRef = child(roomRef, 'gameState');
     
     onValue(gameStateRef, (snapshot) => {
@@ -877,20 +990,35 @@ function listenForUpdates() {
         const oppData = state[oppId];
         const myData = state[myId];
 
-        // 1. Sync Opponent Agents (HP/Position)
-        if (oppData && oppData.agents) {
-            enemyAgents = oppData.agents;
-            updateEnemyUI();
+        // Sync Opponent Agents — skip if alignment is mid-animation
+        if (oppData && oppData.agents && !alignmentInProgress) {
+            // Check if enemy agents changed (name order differs)
+            let changed = false;
+            for (let i = 0; i < 3; i++) {
+                let oldName = (enemyAgents[i] && enemyAgents[i].hp > 0) ? enemyAgents[i].name : null;
+                let newName = (oppData.agents[i] && oppData.agents[i].hp > 0) ? oppData.agents[i].name : null;
+                let oldHp = enemyAgents[i] ? enemyAgents[i].hp : 0;
+                let newHp = oppData.agents[i] ? oppData.agents[i].hp : 0;
+                if (oldName !== newName || oldHp !== newHp) {
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed) {
+                enemyAgents = oppData.agents;
+                updateEnemyUI();
+                // Re-check if local alignment is still correct after receiving opponent data
+                autoAlignIfNeeded();
+            }
         }
 
-        // 2. Check for Resolution
-        // Both must be confirmed, and the game must not be over
+        // Check for Resolution
         if (myData && oppData && myData.confirmed && oppData.confirmed && !gameOver) {
             enemyPlacedCards = oppData.placed || [null,null,null];
             resolveMultiplayerTurn();
         }
         
-        // 3. Update Turn Indicator
+        // Update Turn Indicator
         const indicator = document.getElementById("turn-indicator");
         if (myData && oppData) {
             if (myData.confirmed && !oppData.confirmed) {
@@ -904,6 +1032,31 @@ function listenForUpdates() {
             }
         }
     });
+}
+
+// Silent re-alignment after receiving opponent data (no animation, just snap)
+function autoAlignIfNeeded() {
+    let alivePlayer = playerAgents.filter(a => a && a.hp > 0);
+    let aliveEnemy = enemyAgents.filter(a => a && a.hp > 0);
+    while (alivePlayer.length < 3) alivePlayer.push({ hp: 0 });
+    while (aliveEnemy.length < 3) aliveEnemy.push({ hp: 0 });
+
+    let needsAlign = false;
+    for (let i = 0; i < 3; i++) {
+        let pOld = (playerAgents[i] && playerAgents[i].hp > 0) ? playerAgents[i].name : null;
+        let pNew = (alivePlayer[i] && alivePlayer[i].hp > 0) ? alivePlayer[i].name : null;
+        let eOld = (enemyAgents[i] && enemyAgents[i].hp > 0) ? enemyAgents[i].name : null;
+        let eNew = (aliveEnemy[i] && aliveEnemy[i].hp > 0) ? aliveEnemy[i].name : null;
+        if (pOld !== pNew || eOld !== eNew) { needsAlign = true; break; }
+    }
+
+    if (needsAlign) {
+        playerAgents = alivePlayer;
+        enemyAgents = aliveEnemy;
+        updateAgentsUI();
+        updateEnemyUI();
+        updateBoardUI();
+    }
 }
 
 // =====================
@@ -975,7 +1128,7 @@ window.selectAgentSwap = function(i) {
 }
 
 window.placeCard = function(i) {
-    if (isPlacingCard || confirmedTurn) return; // Lock check
+    if (isPlacingCard || confirmedTurn) return;
     if (selectedCardIndex === null && selectedSpecialIndex === null) return;
     if (playerAgents[i].hp === 0) return alert("Your agent is dead!");
     if (enemyAgents[i].hp === 0) return alert("No enemy here!");
@@ -1048,12 +1201,10 @@ window.confirmTurn = function() {
     document.getElementById("confirm-btn").disabled = true;
     document.getElementById("confirm-btn").innerText = "Locked In!";
 
-    // IMMEDIATE UI LOCK
     updateBoardUI();
     updateHandUI(false);
     updateSpecialHandUI();
 
-    // FIXED: Use child() for pathing
     const gameStateRef = child(roomRef, 'gameState');
     
     const updates = {};
@@ -1068,48 +1219,46 @@ window.confirmTurn = function() {
 // RESOLUTION
 // =====================
 async function resolveMultiplayerTurn() {
-    // Safety check to prevent double resolution
     if (gameOver) return;
 
-    // 1. Reveal
+    // 1. Reveal enemy cards
     revealEnemyCards();
     await new Promise(r => setTimeout(r, 1500)); 
 
-    // 2. Combat
+    // 2. Resolve combat
     resolveCombat();
     
-    // 3. Check Win
+    // 3. Check for win/loss
     checkWin();
     
-    // 4. UI Update
+    // 4. Update UI to show deaths
     updateAgentsUI();
     updateEnemyUI();
 
     if (!gameOver) {
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 1200));
         fadeOutActionCards();
         await new Promise(r => setTimeout(r, 400));
         
-        // Reset Data
-        placedCards = [null,null,null];
-        enemyPlacedCards = [null,null,null];
+        // 5. Auto-align agents so no alive agent faces a dead lane
+        await autoAlignAgents();
         
-        // Draw New Cards
+        // 6. Draw new cards for next turn
         drawCards();
         
-        // Sync New State
+        // 7. Reset turn state
         confirmedTurn = false;
         document.getElementById("confirm-btn").disabled = false;
         document.getElementById("confirm-btn").innerText = "Confirm Turn";
         updateBoardUI();
         updateHandUI(false);
 
+        // 8. Sync new state to database (includes realigned positions)
         const updates = {};
         updates[`${myId}/confirmed`] = false;
         updates[`${myId}/placed`] = [null,null,null];
-        updates[`${myId}/agents`] = playerAgents; // Sync HP changes
+        updates[`${myId}/agents`] = playerAgents;
         
-        // FIXED: Use child() for pathing
         update(child(roomRef, 'gameState'), updates);
     }
 }
@@ -1117,7 +1266,6 @@ async function resolveMultiplayerTurn() {
 function syncGameUpdate() {
     if (!roomRef) return;
     
-    // FIXED: Use child() for pathing
     const gameStateRef = child(roomRef, 'gameState');
     
     const updates = {};
@@ -1166,10 +1314,10 @@ function createBoard() {
         let lane = document.createElement("div");
         lane.className = "lane";
         lane.innerHTML = `
-            <div class="slot agent"></div> <!-- Enemy Agent -->
-            <div class="slot enemy-slot">?</div> <!-- Enemy Card -->
-            <div class="slot place-slot" onclick="placeCard(${i})">+</div> <!-- My Card -->
-            <div class="slot agent" onclick="selectAgentSwap(${i})"></div> <!-- My Agent -->
+            <div class="slot agent"></div>
+            <div class="slot enemy-slot">?</div>
+            <div class="slot place-slot" onclick="placeCard(${i})">+</div>
+            <div class="slot agent" onclick="selectAgentSwap(${i})"></div>
         `;
         lanesDiv.appendChild(lane);
     }
@@ -1231,7 +1379,7 @@ function updateHandUI(animate = false) {
         } else d.innerText = c;
         if (animate) setTimeout(() => d.classList.add("deal"), i * 150);
         d.onclick = () => {
-            if (confirmedTurn) return; // Lock check
+            if (confirmedTurn) return;
             selectedCardIndex = i;
             selectedSpecialIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1253,7 +1401,7 @@ function updateSpecialHandUI() {
             d.appendChild(img);
         } else d.innerText = card;
         d.onclick = () => {
-            if (confirmedTurn) return; // Lock check
+            if (confirmedTurn) return;
             selectedSpecialIndex = i;
             selectedCardIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1271,13 +1419,10 @@ function updateBoardUI() {
         slot.innerHTML = "";
         slot.classList.remove("place-slot");
         
-        // Define click logic
         slot.onclick = () => {
-            // LOCK: Cannot pickup or place after confirming
-            if (confirmedTurn) return; 
+            if (confirmedTurn) return;
 
             if (placedCards[i]) {
-                // Pick up logic
                 let picked = placedCards[i];
                 let isSpecial = picked.card.includes("Sentinel") || picked.card.includes("Initiator") || picked.card.includes("Controller");
                 if (isSpecial) { specialHand.push(picked.card); selectedSpecialIndex = specialHand.length - 1; }
@@ -1286,7 +1431,6 @@ function updateBoardUI() {
                 
                 updateBoardUI(); updateHandUI(false); updateSpecialHandUI();
                 
-                // Visual reselect
                 setTimeout(() => {
                     let cards = document.querySelectorAll(isSpecial ? "#special-hand .card" : "#hand .card");
                     let idx = isSpecial ? selectedSpecialIndex : selectedCardIndex;
@@ -1295,7 +1439,6 @@ function updateBoardUI() {
                 return;
             }
             
-            // If not picking up, try to place
             if (selectedCardIndex === null && selectedSpecialIndex === null) return;
             placeCard(i);
         };
@@ -1389,7 +1532,6 @@ function resolveCombat() {
             playerSlot.classList.add("hit");
             setTimeout(() => playerSlot.classList.remove("hit"), 300);
             
-            // Deflect Logic
             if (pCard === "Deflect (Controller)") {
                 if (eA.hp === 100) eA.hp = 1;
                 else { eA.hp = 0; justDiedEnemy[j] = true; sfxDeath.currentTime=0; sfxDeath.play(); triggerDeathAnimation(enemySlot); }
@@ -1419,6 +1561,10 @@ function getMatchups() {
 }
 
 function triggerDeathAnimation(slot) {
+    const deathSFX = document.getElementById("sfx-death");
+    deathSFX.currentTime = 0;
+    deathSFX.play().catch(() => {});
+
     slot.classList.add("shake");
     setTimeout(() => { slot.classList.remove("shake"); slot.classList.add("shatter"); }, 200);
     setTimeout(() => slot.classList.remove("shatter"), 700);
@@ -1436,7 +1582,6 @@ function checkWin() {
         } else {
             resultDiv.innerText = "YOU WIN"; resultDiv.classList.add("win");
         }
-        // Cleanup Room
         if(isHost) remove(roomRef);
     }
 }
