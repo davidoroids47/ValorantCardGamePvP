@@ -244,6 +244,14 @@ cursor: pointer;
     color: #ff4444;
     text-shadow: 0 0 10px #ff4444, 0 0 20px #ff4444, 0 0 40px #ff0000;
 }
+
+#result.draw {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.3);
+    color: #ffaa00;
+    text-shadow: 0 0 10px #ffaa00, 0 0 20px #ffaa00, 0 0 40px #ff6600;
+}
+
 #special-hand {
     border-top: 2px solid rgba(255,255,255,0.2);
     padding-top: 10px;
@@ -778,8 +786,10 @@ let bonusDraw = 0;
 let isPlacingCard = false;
 let confirmedTurn = false;
 
-// Track if alignment is in progress to prevent listener conflicts
-let alignmentInProgress = false;
+// FI X: Single flag that blocks ALL listener updates during turn resolution.
+// Prevents the Firebase listener from re-rendering mid-animation or
+// overwriting combat results with stale remote state.
+let turnResolving = false;
 
 // =====================
 // UTILITY FUNCTIONS
@@ -792,7 +802,6 @@ function shuffle(deck) {
 }
 function isAttack(card) { return card === "Attack"; }
 
-// Check if a card belongs to the action deck (not a special role card)
 function isFromActionDeck(cardName) {
     return cardName && !cardName.includes("Sentinel") && !cardName.includes("Initiator") && !cardName.includes("Controller");
 }
@@ -838,18 +847,15 @@ function isTurnValid() {
 // DISCARD & RESHUFFLE SYSTEM
 // =====================
 function discardHand() {
-    // Move all remaining hand cards to discard deck
     discardDeck.push(...hand);
     hand = [];
 }
 
 function discardPlacedActionCards() {
-    // Move placed cards that came from the action deck to discard
     for (let i = 0; i < 3; i++) {
         if (placedCards[i] && isFromActionDeck(placedCards[i].card)) {
             discardDeck.push(placedCards[i].card);
         }
-        // Special cards (Deflect, Block, Draw2) are NOT recycled
     }
 }
 
@@ -930,10 +936,6 @@ function autoAlignAgents() {
 
     if (!needsAlignment) return Promise.resolve(false);
 
-    alignmentInProgress = true;
-
-    let lanes = document.getElementById("lanes").children;
-
     playerAgents.forEach((agent, oldIdx) => {
         if (agent && agent.hp > 0) {
             let newIdx = alivePlayer.indexOf(agent);
@@ -970,7 +972,6 @@ function autoAlignAgents() {
                 }
             }
 
-            alignmentInProgress = false;
             resolve(true);
         }, 450);
     });
@@ -1125,10 +1126,16 @@ function listenForGameStart() {
     });
 }
 
+// FIX: Block ALL listener updates during turn resolution.
+// This prevents the listener from re-rendering agents mid-animation
+// or overwriting local combat results with stale remote state.
 function listenForUpdates() {
     const gameStateRef = child(roomRef, 'gameState');
     
     onValue(gameStateRef, (snapshot) => {
+        // === CRITICAL FIX: Block everything during resolution ===
+        if (turnResolving) return;
+
         const state = snapshot.val();
         if (!state) return;
 
@@ -1136,26 +1143,23 @@ function listenForUpdates() {
         const oppData = state[oppId];
         const myData = state[myId];
 
-        if (oppData && oppData.agents && !alignmentInProgress) {
+        // Only update enemy agent display — NO alignment from listener.
+        // Alignment is handled exclusively inside resolveMultiplayerTurn.
+        if (oppData && oppData.agents) {
             let changed = false;
             for (let i = 0; i < 3; i++) {
-                let oldName = (enemyAgents[i] && enemyAgents[i].hp > 0) ? enemyAgents[i].name : null;
-                let newName = (oppData.agents[i] && oppData.agents[i].hp > 0) ? oppData.agents[i].name : null;
                 let oldHp = enemyAgents[i] ? enemyAgents[i].hp : 0;
                 let newHp = oppData.agents[i] ? oppData.agents[i].hp : 0;
-                if (oldName !== newName || oldHp !== newHp) {
-                    changed = true;
-                    break;
-                }
+                if (oldHp !== newHp) { changed = true; break; }
             }
             if (changed) {
                 enemyAgents = oppData.agents;
                 updateEnemyUI();
-                autoAlignIfNeeded();
+                // Removed autoAlignIfNeeded() — was causing animation pop-back
             }
         }
 
-        if (myData && oppData && myData.confirmed && oppData.confirmed && !gameOver) {
+        if (myData && oppData && myData.confirmed && oppData.confirmed && !gameOver && !turnResolving) {
             enemyPlacedCards = oppData.placed || [null,null,null];
             resolveMultiplayerTurn();
         }
@@ -1173,30 +1177,6 @@ function listenForUpdates() {
             }
         }
     });
-}
-
-function autoAlignIfNeeded() {
-    let alivePlayer = playerAgents.filter(a => a && a.hp > 0);
-    let aliveEnemy = enemyAgents.filter(a => a && a.hp > 0);
-    while (alivePlayer.length < 3) alivePlayer.push({ hp: 0 });
-    while (aliveEnemy.length < 3) aliveEnemy.push({ hp: 0 });
-
-    let needsAlign = false;
-    for (let i = 0; i < 3; i++) {
-        let pOld = (playerAgents[i] && playerAgents[i].hp > 0) ? playerAgents[i].name : null;
-        let pNew = (alivePlayer[i] && alivePlayer[i].hp > 0) ? alivePlayer[i].name : null;
-        let eOld = (enemyAgents[i] && enemyAgents[i].hp > 0) ? enemyAgents[i].name : null;
-        let eNew = (aliveEnemy[i] && aliveEnemy[i].hp > 0) ? aliveEnemy[i].name : null;
-        if (pOld !== pNew || eOld !== eNew) { needsAlign = true; break; }
-    }
-
-    if (needsAlign) {
-        playerAgents = alivePlayer;
-        enemyAgents = aliveEnemy;
-        updateAgentsUI();
-        updateEnemyUI();
-        updateBoardUI();
-    }
 }
 
 // =====================
@@ -1230,7 +1210,7 @@ function startGameLocal() {
 // ACTIONS
 // =====================
 window.selectAgentSwap = function(i) {
-    if (confirmedTurn) return;
+    if (confirmedTurn || turnResolving) return;
     let lanes = document.getElementById("lanes").children;
     if (selectedAgentIndex === null) {
         if (playerAgents[i].hp === 0) return;
@@ -1270,7 +1250,7 @@ window.selectAgentSwap = function(i) {
 }
 
 window.placeCard = function(i) {
-    if (isPlacingCard || confirmedTurn) return;
+    if (isPlacingCard || confirmedTurn || turnResolving) return;
     if (selectedCardIndex === null && selectedSpecialIndex === null) return;
     if (playerAgents[i].hp === 0) return alert("Your agent is dead!");
     if (enemyAgents[i].hp === 0) return alert("No enemy here!");
@@ -1334,7 +1314,7 @@ window.placeCard = function(i) {
 }
 
 window.confirmTurn = function() {
-    if (gameOver || confirmedTurn) return;
+    if (gameOver || confirmedTurn || turnResolving) return;
     if (!isTurnValid()) return alert("Invalid positioning! You cannot hide in an empty lane.");
 
     confirmedTurn = true;
@@ -1358,62 +1338,72 @@ window.confirmTurn = function() {
 }
 
 // =====================
-// RESOLUTION
+// RESOLUTION (FIXED)
 // =====================
+// FIX: Guard against double-entry and wrap in try/finally
+// to guarantee turnResolving is always reset.
 async function resolveMultiplayerTurn() {
-    if (gameOver) return;
+    if (turnResolving || gameOver) return;
+    turnResolving = true;
 
-    // 1. Reveal enemy cards
-    revealEnemyCards();
-    await new Promise(r => setTimeout(r, 1500)); 
+    try {
+        // 1. Reveal enemy cards
+        revealEnemyCards();
+        await new Promise(r => setTimeout(r, 1500)); 
 
-    // 2. Resolve combat
-    resolveCombat();
-    
-    // 3. Check for win/loss
-    checkWin();
-    
-    // 4. Update UI to show deaths
-    updateAgentsUI();
-    updateEnemyUI();
+        // 2. Resolve combat (deterministic — both clients get same result)
+        resolveCombat();
+        
+        // 3. Check for win/loss/draw
+        checkWin();
+        
+        // 4. Update UI to show deaths
+        updateAgentsUI();
+        updateEnemyUI();
 
-    if (!gameOver) {
-        await new Promise(r => setTimeout(r, 1200));
-        fadeOutActionCards();
-        await new Promise(r => setTimeout(r, 400));
-        
-        // 5. Auto-align agents
-        await autoAlignAgents();
-        
-        // 6. DISCARD PHASE: discard placed action deck cards
-        discardPlacedActionCards();
-        
-        // 7. DISCARD PHASE: discard all remaining hand cards
-        discardHand();
-        
-        // 8. Check if action deck needs reshuffling from discard
-        checkReshuffle();
-        
-        // 9. Draw fresh cards for next turn
-        drawCards();
-        
-        // 10. Update deck info display
-        updateDeckInfo();
-        
-        // 11. Reset turn state
-        confirmedTurn = false;
-        document.getElementById("confirm-btn").disabled = false;
-        document.getElementById("confirm-btn").innerText = "Confirm Turn";
-        updateBoardUI();
-        updateHandUI(false);
+        if (!gameOver) {
+            await new Promise(r => setTimeout(r, 1200));
+            fadeOutActionCards();
+            await new Promise(r => setTimeout(r, 400));
+            
+            // 5. Auto-align agents (safe — listener is blocked)
+            await autoAlignAgents();
+            
+            // 6. Discard placed action deck cards
+            discardPlacedActionCards();
+            
+            // 7. Discard all remaining hand cards
+            discardHand();
+            
+            // 8. Reshuffle if needed
+            checkReshuffle();
+            
+            // 9. Draw fresh cards
+            drawCards();
+            
+            // 10. Update deck info
+            updateDeckInfo();
+            
+            // 11. Reset turn state
+            confirmedTurn = false;
+            selectedCardIndex = null;
+            selectedSpecialIndex = null;
+            document.getElementById("confirm-btn").disabled = false;
+            document.getElementById("confirm-btn").innerText = "Confirm Turn";
+            updateBoardUI();
+            updateHandUI(false);
 
-        // 12. Sync new state to database
-        const updates = {};
-        updates[`${myId}/confirmed`] = false;
-        updates[`${myId}/placed`] = [null,null,null];
-        updates[`${myId}/agents`] = playerAgents;
-        
-        update(child(roomRef, 'gameState'), updates);
+            // 12. Sync new state to database
+            const updates = {};
+            updates[`${myId}/confirmed`] = false;
+            updates[`${myId}/placed`] = [null,null,null];
+            updates[`${myId}/agents`] = playerAgents;
+            
+            update(child(roomRef, 'gameState'), updates);
+        }
+    } finally {
+        // Always reset, even if an error occurred
+        turnResolving = false;
     }
 }
 
@@ -1446,17 +1436,15 @@ function generateSpecialHand() {
 }
 
 function drawCards() {
-    // Always draw exactly 3 + bonusDraw fresh cards
     let drawCount = 3 + bonusDraw;
     for (let i = 0; i < drawCount; i++) {
         if (actionDeck.length === 0) {
-            // Emergency reshuffle if deck runs out mid-draw
             if (discardDeck.length > 0) {
                 actionDeck.push(...discardDeck);
                 discardDeck = [];
                 shuffle(actionDeck);
                 showReshuffleNotification();
-            } else break; // Truly no cards left
+            } else break;
         }
         hand.push(actionDeck.pop());
     }
@@ -1538,7 +1526,7 @@ function updateHandUI(animate = false) {
         } else d.innerText = c;
         if (animate) setTimeout(() => d.classList.add("deal"), i * 150);
         d.onclick = () => {
-            if (confirmedTurn) return;
+            if (confirmedTurn || turnResolving) return;
             selectedCardIndex = i;
             selectedSpecialIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1560,7 +1548,7 @@ function updateSpecialHandUI() {
             d.appendChild(img);
         } else d.innerText = card;
         d.onclick = () => {
-            if (confirmedTurn) return;
+            if (confirmedTurn || turnResolving) return;
             selectedSpecialIndex = i;
             selectedCardIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1579,7 +1567,7 @@ function updateBoardUI() {
         slot.classList.remove("place-slot");
         
         slot.onclick = () => {
-            if (confirmedTurn) return;
+            if (confirmedTurn || turnResolving) return;
 
             if (placedCards[i]) {
                 let picked = placedCards[i];
@@ -1653,7 +1641,7 @@ function fadeOutActionCards() {
 }
 
 // =====================
-// COMBAT LOGIC (FIXED DEFLECT)
+// COMBAT LOGIC (FIXED — Attack vs Attack = mutual kill)
 // =====================
 function resolveCombat() {
     let lanes = document.getElementById("lanes").children;
@@ -1670,13 +1658,39 @@ function resolveCombat() {
         let enemySlot = lanes[j].children[0];
         let playerSlot = lanes[i].children[3];
 
+        let pIsAttack = isAttack(pCard);
+        let eIsAttack = isAttack(eCard);
+
+        // ============================================
+        // FIX: ATTACK vs ATTACK — Both die (mutual kill)
+        // This is DETERMINISTIC: same result on both clients
+        // regardless of processing order.
+        // ============================================
+        if (pIsAttack && eIsAttack && pA.hp > 0 && eA.hp > 0) {
+            sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
+            playerSlot.classList.add("hit");
+            enemySlot.classList.add("hit");
+            setTimeout(() => {
+                playerSlot.classList.remove("hit");
+                enemySlot.classList.remove("hit");
+            }, 300);
+            pA.hp = 0;
+            eA.hp = 0;
+            justDiedPlayer[i] = true;
+            justDiedEnemy[j] = true;
+            sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
+            triggerDeathAnimation(playerSlot);
+            setTimeout(() => triggerDeathAnimation(enemySlot), 100);
+            continue;
+        }
+
         // =====================
-        // PLAYER ATTACK SECTION
+        // PLAYER ATTACK (enemy didn't attack)
         // =====================
-        if (pCard && pA.hp > 0 && eA.hp > 0 && isAttack(pCard)) {
+        if (pIsAttack && pA.hp > 0 && eA.hp > 0) {
             sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
 
-            // DEFLECT CHECK: Enemy has Deflect — bounce damage back to player
+            // DEFLECT: bounce back to player
             if (eCard === "Deflect (Controller)") {
                 playerSlot.classList.add("hit");
                 setTimeout(() => playerSlot.classList.remove("hit"), 300);
@@ -1688,16 +1702,15 @@ function resolveCombat() {
                     sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
                     triggerDeathAnimation(playerSlot);
                 }
-                continue; // Skip to next fight
-            }
-
-            // BLOCK CHECK: Enemy has BlockAttack — attack does nothing
-            if (eCard === "BlockAttack (Sentinel)") {
-                console.log("Attack Blocked by Sentinel");
                 continue;
             }
 
-            // Enemy has a compatible utility card — takes 99 damage (100→1)
+            // BLOCK: attack does nothing
+            if (eCard === "BlockAttack (Sentinel)") {
+                continue;
+            }
+
+            // Compatible utility: survives with 1 HP (only at full HP)
             if (isCompatible(eCard, eA.name)) {
                 enemySlot.classList.add("hit");
                 setTimeout(() => enemySlot.classList.remove("hit"), 300);
@@ -1710,22 +1723,23 @@ function resolveCombat() {
                 continue;
             }
 
-            // Enemy has no card or incompatible utility — full kill
+            // No defense: full kill
             enemySlot.classList.add("hit");
             setTimeout(() => enemySlot.classList.remove("hit"), 300);
             eA.hp = 0;
             justDiedEnemy[j] = true;
             sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
             triggerDeathAnimation(enemySlot);
+            continue;
         }
 
         // =====================
-        // ENEMY ATTACK SECTION
+        // ENEMY ATTACK (player didn't attack)
         // =====================
-        if (eCard && eA.hp > 0 && pA.hp > 0 && isAttack(eCard)) {
+        if (eIsAttack && eA.hp > 0 && pA.hp > 0) {
             sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
 
-            // DEFLECT CHECK: Player has Deflect — bounce damage back to enemy
+            // DEFLECT: bounce back to enemy
             if (pCard === "Deflect (Controller)") {
                 enemySlot.classList.add("hit");
                 setTimeout(() => enemySlot.classList.remove("hit"), 300);
@@ -1740,13 +1754,12 @@ function resolveCombat() {
                 continue;
             }
 
-            // BLOCK CHECK: Player has BlockAttack — attack does nothing
+            // BLOCK: attack does nothing
             if (pCard === "BlockAttack (Sentinel)") {
-                console.log("Attack Blocked by Sentinel");
                 continue;
             }
 
-            // Player has a compatible utility card — takes 99 damage (100→1)
+            // Compatible utility: survives with 1 HP (only at full HP)
             if (isCompatible(pCard, pA.name)) {
                 playerSlot.classList.add("hit");
                 setTimeout(() => playerSlot.classList.remove("hit"), 300);
@@ -1759,13 +1772,14 @@ function resolveCombat() {
                 continue;
             }
 
-            // Player has no card or incompatible utility — full kill
+            // No defense: full kill
             playerSlot.classList.add("hit");
             setTimeout(() => playerSlot.classList.remove("hit"), 300);
             pA.hp = 0;
             justDiedPlayer[i] = true;
             sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
             triggerDeathAnimation(playerSlot);
+            continue;
         }
     }
 }
@@ -1790,18 +1804,27 @@ function triggerDeathAnimation(slot) {
     setTimeout(() => slot.classList.remove("shatter"), 700);
 }
 
+// FIX: Added DRAW handling for mutual kills
 function checkWin() {
     let resultDiv = document.getElementById("result");
     let playerAlive = playerAgents.some(a => a.hp > 0);
     let enemyAlive = enemyAgents.some(a => a.hp > 0);
 
-    if (!playerAlive || !enemyAlive) {
+    if (!playerAlive && !enemyAlive) {
+        // Both wiped simultaneously (e.g., Attack vs Attack in last lane)
         gameOver = true;
-        if (!playerAlive) {
-            resultDiv.innerText = "YOU LOSE"; resultDiv.classList.add("lose");
-        } else {
-            resultDiv.innerText = "YOU WIN"; resultDiv.classList.add("win");
-        }
+        resultDiv.innerText = "DRAW";
+        resultDiv.classList.add("draw");
+        if(isHost) remove(roomRef);
+    } else if (!playerAlive) {
+        gameOver = true;
+        resultDiv.innerText = "YOU LOSE";
+        resultDiv.classList.add("lose");
+        if(isHost) remove(roomRef);
+    } else if (!enemyAlive) {
+        gameOver = true;
+        resultDiv.innerText = "YOU WIN";
+        resultDiv.classList.add("win");
         if(isHost) remove(roomRef);
     }
 }
