@@ -499,6 +499,41 @@ transition: all 0.4s ease;
     100% { box-shadow: 0 0 0px transparent; }
 }
 .align-flash { animation: alignFlash 0.5s ease; }
+
+/* DECK INFO */
+.deck-info {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(0,0,0,0.7);
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    color: #aaa;
+    z-index: 10;
+}
+.deck-info span { color: #00ffcc; font-weight: bold; }
+
+/* RESHUFFLE NOTIFICATION */
+@keyframes reshuffleFlash {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+    20% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+    80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+}
+.reshuffle-notify {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 28px;
+    font-weight: bold;
+    color: #ffaa00;
+    text-shadow: 0 0 10px #ffaa00, 0 0 20px #ff6600;
+    z-index: 9998;
+    pointer-events: none;
+    animation: reshuffleFlash 1.8s ease forwards;
+}
 </style>
 </head>
 <body>
@@ -516,6 +551,11 @@ transition: all 0.4s ease;
 
 <div class="volume-control">🔊 <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.5"></div>
 <div class="volume-control" style="top:60px;">🎵 SFX <input type="range" id="sfxSlider" min="0" max="1" step="0.01" value="0.5"></div>
+
+<!-- DECK INFO -->
+<div class="deck-info" id="deck-info" style="display:none;">
+    Deck: <span id="deck-count">0</span> &nbsp;|&nbsp; Discard: <span id="discard-count">0</span>
+</div>
 
 <!-- TURN INDICATOR -->
 <div class="turn-indicator" id="turn-indicator">Waiting...</div>
@@ -751,9 +791,15 @@ function shuffle(deck) {
     }
 }
 function isAttack(card) { return card === "Attack"; }
+
+// Check if a card belongs to the action deck (not a special role card)
+function isFromActionDeck(cardName) {
+    return cardName && !cardName.includes("Sentinel") && !cardName.includes("Initiator") && !cardName.includes("Controller");
+}
+
 function isCompatible(card, agentName) {
     if (!card || isAttack(card)) return false;
-    return agentUtilities[agentName].includes(card.split(" (")[0]);
+    return agentUtilities[agentName] && agentUtilities[agentName].includes(card.split(" (")[0]);
 }
 function getAliveCounts() {
     const playerAlive = playerAgents.map(a => a && a.hp > 0);
@@ -789,9 +835,48 @@ function isTurnValid() {
 }
 
 // =====================
+// DISCARD & RESHUFFLE SYSTEM
+// =====================
+function discardHand() {
+    // Move all remaining hand cards to discard deck
+    discardDeck.push(...hand);
+    hand = [];
+}
+
+function discardPlacedActionCards() {
+    // Move placed cards that came from the action deck to discard
+    for (let i = 0; i < 3; i++) {
+        if (placedCards[i] && isFromActionDeck(placedCards[i].card)) {
+            discardDeck.push(placedCards[i].card);
+        }
+        // Special cards (Deflect, Block, Draw2) are NOT recycled
+    }
+}
+
+function checkReshuffle() {
+    if (actionDeck.length <= 12 && discardDeck.length > 0) {
+        actionDeck.push(...discardDeck);
+        discardDeck = [];
+        shuffle(actionDeck);
+        showReshuffleNotification();
+    }
+}
+
+function showReshuffleNotification() {
+    let notify = document.createElement("div");
+    notify.className = "reshuffle-notify";
+    notify.innerText = "♻ DISCARD RESHUFFLED INTO DECK";
+    document.body.appendChild(notify);
+    setTimeout(() => notify.remove(), 2000);
+}
+
+function updateDeckInfo() {
+    document.getElementById("deck-count").innerText = actionDeck.length;
+    document.getElementById("discard-count").innerText = discardDeck.length;
+}
+
+// =====================
 // AUTO-ALIGN SYSTEM
-// Ensures no alive agent faces a dead lane after combat
-// Deterministic: both players compute the same result
 // =====================
 function animateAgentMove(fromIndex, toIndex, isPlayer = true) {
     let lanes = document.getElementById("lanes").children;
@@ -821,15 +906,12 @@ function animateAgentMove(fromIndex, toIndex, isPlayer = true) {
 }
 
 function autoAlignAgents() {
-    // Collect alive agents preserving their current order
     let alivePlayer = playerAgents.filter(a => a && a.hp > 0);
     let aliveEnemy = enemyAgents.filter(a => a && a.hp > 0);
 
-    // Pad with dead placeholders to maintain 3 slots
     while (alivePlayer.length < 3) alivePlayer.push({ hp: 0 });
     while (aliveEnemy.length < 3) aliveEnemy.push({ hp: 0 });
 
-    // Check if alignment is actually needed (compare by agent name)
     let needsAlignment = false;
     for (let i = 0; i < 3; i++) {
         let pOld = (playerAgents[i] && playerAgents[i].hp > 0) ? playerAgents[i].name : null;
@@ -842,7 +924,7 @@ function autoAlignAgents() {
         }
     }
 
-    // Clear placed cards regardless (end of turn cleanup)
+    // Clear placed cards regardless
     placedCards = [null, null, null];
     enemyPlacedCards = [null, null, null];
 
@@ -852,7 +934,6 @@ function autoAlignAgents() {
 
     let lanes = document.getElementById("lanes").children;
 
-    // Animate player agent movements
     playerAgents.forEach((agent, oldIdx) => {
         if (agent && agent.hp > 0) {
             let newIdx = alivePlayer.indexOf(agent);
@@ -862,7 +943,6 @@ function autoAlignAgents() {
         }
     });
 
-    // Animate enemy agent movements
     enemyAgents.forEach((agent, oldIdx) => {
         if (agent && agent.hp > 0) {
             let newIdx = aliveEnemy.indexOf(agent);
@@ -881,7 +961,6 @@ function autoAlignAgents() {
             updateEnemyUI();
             updateBoardUI();
 
-            // Flash the active lanes to indicate alignment
             let newLanes = document.getElementById("lanes").children;
             let { playerAlive, enemyAlive } = getAliveCounts();
             for (let i = 0; i < 3; i++) {
@@ -942,7 +1021,6 @@ function selectAgent(agent, div) {
 // MULTIPLAYER LOGIC
 // =====================
 function generateRoomCode(length = 6) {
-    // Excluded confusing chars: 0/O, 1/I/L
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
     let code = '';
     for (let i = 0; i < length; i++) {
@@ -960,7 +1038,6 @@ window.createRoom = async function() {
     generateSpecialHand();
     initDecks();
 
-    // Generate a unique short code
     let code;
     let exists = true;
     let attempts = 0;
@@ -1059,9 +1136,7 @@ function listenForUpdates() {
         const oppData = state[oppId];
         const myData = state[myId];
 
-        // Sync Opponent Agents — skip if alignment is mid-animation
         if (oppData && oppData.agents && !alignmentInProgress) {
-            // Check if enemy agents changed (name order differs)
             let changed = false;
             for (let i = 0; i < 3; i++) {
                 let oldName = (enemyAgents[i] && enemyAgents[i].hp > 0) ? enemyAgents[i].name : null;
@@ -1076,18 +1151,15 @@ function listenForUpdates() {
             if (changed) {
                 enemyAgents = oppData.agents;
                 updateEnemyUI();
-                // Re-check if local alignment is still correct after receiving opponent data
                 autoAlignIfNeeded();
             }
         }
 
-        // Check for Resolution
         if (myData && oppData && myData.confirmed && oppData.confirmed && !gameOver) {
             enemyPlacedCards = oppData.placed || [null,null,null];
             resolveMultiplayerTurn();
         }
         
-        // Update Turn Indicator
         const indicator = document.getElementById("turn-indicator");
         if (myData && oppData) {
             if (myData.confirmed && !oppData.confirmed) {
@@ -1103,7 +1175,6 @@ function listenForUpdates() {
     });
 }
 
-// Silent re-alignment after receiving opponent data (no animation, just snap)
 function autoAlignIfNeeded() {
     let alivePlayer = playerAgents.filter(a => a && a.hp > 0);
     let aliveEnemy = enemyAgents.filter(a => a && a.hp > 0);
@@ -1145,12 +1216,14 @@ function startGameLocal() {
     sfxStart.currentTime = 0; sfxStart.play().catch(()=>{});
     document.getElementById("agent-selection").style.display = "none";
     document.getElementById("game").style.display = "block";
+    document.getElementById("deck-info").style.display = "block";
     
     createBoard();
     updateAgentsUI();
     updateEnemyUI();
     updateHandUI(true);
     updateSpecialHandUI();
+    updateDeckInfo();
 }
 
 // =====================
@@ -1309,20 +1382,32 @@ async function resolveMultiplayerTurn() {
         fadeOutActionCards();
         await new Promise(r => setTimeout(r, 400));
         
-        // 5. Auto-align agents so no alive agent faces a dead lane
+        // 5. Auto-align agents
         await autoAlignAgents();
         
-        // 6. Draw new cards for next turn
+        // 6. DISCARD PHASE: discard placed action deck cards
+        discardPlacedActionCards();
+        
+        // 7. DISCARD PHASE: discard all remaining hand cards
+        discardHand();
+        
+        // 8. Check if action deck needs reshuffling from discard
+        checkReshuffle();
+        
+        // 9. Draw fresh cards for next turn
         drawCards();
         
-        // 7. Reset turn state
+        // 10. Update deck info display
+        updateDeckInfo();
+        
+        // 11. Reset turn state
         confirmedTurn = false;
         document.getElementById("confirm-btn").disabled = false;
         document.getElementById("confirm-btn").innerText = "Confirm Turn";
         updateBoardUI();
         updateHandUI(false);
 
-        // 8. Sync new state to database (includes realigned positions)
+        // 12. Sync new state to database
         const updates = {};
         updates[`${myId}/confirmed`] = false;
         updates[`${myId}/placed`] = [null,null,null];
@@ -1361,14 +1446,19 @@ function generateSpecialHand() {
 }
 
 function drawCards() {
+    // Always draw exactly 3 + bonusDraw fresh cards
     let drawCount = 3 + bonusDraw;
-    while (hand.length < drawCount) {
+    for (let i = 0; i < drawCount; i++) {
         if (actionDeck.length === 0) {
-            actionDeck = [...discardDeck];
-            discardDeck = [];
-            shuffle(actionDeck);
+            // Emergency reshuffle if deck runs out mid-draw
+            if (discardDeck.length > 0) {
+                actionDeck.push(...discardDeck);
+                discardDeck = [];
+                shuffle(actionDeck);
+                showReshuffleNotification();
+            } else break; // Truly no cards left
         }
-        if(actionDeck.length > 0) hand.push(actionDeck.pop());
+        hand.push(actionDeck.pop());
     }
     bonusDraw = 0;
 }
@@ -1563,7 +1653,7 @@ function fadeOutActionCards() {
 }
 
 // =====================
-// COMBAT LOGIC
+// COMBAT LOGIC (FIXED DEFLECT)
 // =====================
 function resolveCombat() {
     let lanes = document.getElementById("lanes").children;
@@ -1580,41 +1670,102 @@ function resolveCombat() {
         let enemySlot = lanes[j].children[0];
         let playerSlot = lanes[i].children[3];
 
-        // Player Attack
+        // =====================
+        // PLAYER ATTACK SECTION
+        // =====================
         if (pCard && pA.hp > 0 && eA.hp > 0 && isAttack(pCard)) {
             sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
-            enemySlot.classList.add("hit");
-            setTimeout(() => enemySlot.classList.remove("hit"), 300);
-            if (eCard === "BlockAttack (Sentinel)") console.log("Blocked");
-            else if (!isCompatible(eCard, eA.name) && !isAttack(eCard)) {
-                eA.hp = 0; justDiedEnemy[j] = true;
-                sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
-                triggerDeathAnimation(enemySlot);
-            } else if (isCompatible(eCard, eA.name)) {
-                eA.hp = (eA.hp === 100) ? 1 : 0;
-            }
-        }
 
-        // Enemy Attack
-        if (eCard && eA.hp > 0 && pA.hp > 0 && isAttack(eCard)) {
-            sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
-            playerSlot.classList.add("hit");
-            setTimeout(() => playerSlot.classList.remove("hit"), 300);
-            
-            if (pCard === "Deflect (Controller)") {
-                if (eA.hp === 100) eA.hp = 1;
-                else { eA.hp = 0; justDiedEnemy[j] = true; sfxDeath.currentTime=0; sfxDeath.play(); triggerDeathAnimation(enemySlot); }
+            // DEFLECT CHECK: Enemy has Deflect — bounce damage back to player
+            if (eCard === "Deflect (Controller)") {
+                playerSlot.classList.add("hit");
+                setTimeout(() => playerSlot.classList.remove("hit"), 300);
+                if (pA.hp === 100) {
+                    pA.hp = 1;
+                } else {
+                    pA.hp = 0;
+                    justDiedPlayer[i] = true;
+                    sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
+                    triggerDeathAnimation(playerSlot);
+                }
+                continue; // Skip to next fight
+            }
+
+            // BLOCK CHECK: Enemy has BlockAttack — attack does nothing
+            if (eCard === "BlockAttack (Sentinel)") {
+                console.log("Attack Blocked by Sentinel");
                 continue;
             }
-            
-            if (pCard === "BlockAttack (Sentinel)") console.log("Blocked");
-            else if (!isCompatible(pCard, pA.name) && !isAttack(pCard)) {
-                pA.hp = 0; justDiedPlayer[i] = true;
-                sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
-                triggerDeathAnimation(playerSlot);
-            } else if (isCompatible(pCard, pA.name)) {
-                pA.hp = (pA.hp === 100) ? 1 : 0;
+
+            // Enemy has a compatible utility card — takes 99 damage (100→1)
+            if (isCompatible(eCard, eA.name)) {
+                enemySlot.classList.add("hit");
+                setTimeout(() => enemySlot.classList.remove("hit"), 300);
+                eA.hp = (eA.hp === 100) ? 1 : 0;
+                if (eA.hp === 0) {
+                    justDiedEnemy[j] = true;
+                    sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
+                    triggerDeathAnimation(enemySlot);
+                }
+                continue;
             }
+
+            // Enemy has no card or incompatible utility — full kill
+            enemySlot.classList.add("hit");
+            setTimeout(() => enemySlot.classList.remove("hit"), 300);
+            eA.hp = 0;
+            justDiedEnemy[j] = true;
+            sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
+            triggerDeathAnimation(enemySlot);
+        }
+
+        // =====================
+        // ENEMY ATTACK SECTION
+        // =====================
+        if (eCard && eA.hp > 0 && pA.hp > 0 && isAttack(eCard)) {
+            sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
+
+            // DEFLECT CHECK: Player has Deflect — bounce damage back to enemy
+            if (pCard === "Deflect (Controller)") {
+                enemySlot.classList.add("hit");
+                setTimeout(() => enemySlot.classList.remove("hit"), 300);
+                if (eA.hp === 100) {
+                    eA.hp = 1;
+                } else {
+                    eA.hp = 0;
+                    justDiedEnemy[j] = true;
+                    sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
+                    triggerDeathAnimation(enemySlot);
+                }
+                continue;
+            }
+
+            // BLOCK CHECK: Player has BlockAttack — attack does nothing
+            if (pCard === "BlockAttack (Sentinel)") {
+                console.log("Attack Blocked by Sentinel");
+                continue;
+            }
+
+            // Player has a compatible utility card — takes 99 damage (100→1)
+            if (isCompatible(pCard, pA.name)) {
+                playerSlot.classList.add("hit");
+                setTimeout(() => playerSlot.classList.remove("hit"), 300);
+                pA.hp = (pA.hp === 100) ? 1 : 0;
+                if (pA.hp === 0) {
+                    justDiedPlayer[i] = true;
+                    sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
+                    triggerDeathAnimation(playerSlot);
+                }
+                continue;
+            }
+
+            // Player has no card or incompatible utility — full kill
+            playerSlot.classList.add("hit");
+            setTimeout(() => playerSlot.classList.remove("hit"), 300);
+            pA.hp = 0;
+            justDiedPlayer[i] = true;
+            sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
+            triggerDeathAnimation(playerSlot);
         }
     }
 }
