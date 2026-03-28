@@ -212,6 +212,11 @@ cursor: pointer;
     box-shadow: 0 10px 20px rgba(0,0,0,0.6);
 }
 
+.selected {
+    border: 3px solid #00ffcc !important;
+    box-shadow: 0 0 15px #00ffcc;
+}
+
 /* ANIMATIONS */
 @keyframes dealCard {
     0% { transform: translateX(-200px) translateY(60px) scale(0.3); opacity: 0; }
@@ -518,7 +523,7 @@ transition: all 0.4s ease;
 <!-- FIREBASE MODULE SCRIPT -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, set, get, onValue, update, push, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, update, push, remove, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyC3KdYnUGBZa-9Ja2pC8aWP-90PnJAhd0U",
@@ -783,7 +788,7 @@ window.createRoom = function() {
     roomRef = newRoomRef;
     const roomId = roomRef.key;
 
-    // Initialize gameState immediately to prevent null reference issues
+    // Initialize gameState immediately
     const initialState = {
         status: "waiting",
         host: { agents: playerAgents },
@@ -809,7 +814,9 @@ window.joinRoom = function() {
     const roomId = document.getElementById('join-code-input').value.trim();
     if (!roomId) return alert("Enter Room Code!");
 
+    // Construct the reference correctly: rooms/roomId
     const r = ref(db, 'rooms/' + roomId);
+    
     get(r).then(snapshot => {
         if (!snapshot.exists()) return alert("Room not found!");
         const data = snapshot.val();
@@ -817,7 +824,7 @@ window.joinRoom = function() {
 
         isHost = false;
         myId = "p2";
-        roomRef = r;
+        roomRef = r; // Store the reference to rooms/roomId
 
         playerAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
         enemyAgents = data.host.agents; 
@@ -858,8 +865,11 @@ function listenForGameStart() {
 }
 
 function listenForUpdates() {
-    // Listen specifically to the gameState node
-    onValue(ref(db, roomRef.key + '/gameState'), (snapshot) => {
+    // FIXED: Use child() instead of string concatenation
+    // This points to rooms/<id>/gameState
+    const gameStateRef = child(roomRef, 'gameState');
+    
+    onValue(gameStateRef, (snapshot) => {
         const state = snapshot.val();
         if (!state) return;
 
@@ -1038,17 +1048,20 @@ window.confirmTurn = function() {
     document.getElementById("confirm-btn").disabled = true;
     document.getElementById("confirm-btn").innerText = "Locked In!";
 
-    // IMMEDIATE UI LOCK: Update UI to reflect confirmedTurn = true so cards cannot be picked up
+    // IMMEDIATE UI LOCK
     updateBoardUI();
     updateHandUI(false);
     updateSpecialHandUI();
 
-    // Sync to Firebase
+    // FIXED: Use child() for pathing
+    const gameStateRef = child(roomRef, 'gameState');
+    
     const updates = {};
     updates[`${myId}/agents`] = playerAgents;
     updates[`${myId}/placed`] = placedCards;
     updates[`${myId}/confirmed`] = true;
-    update(ref(db, roomRef.key + '/gameState'), updates);
+    
+    update(gameStateRef, updates);
 }
 
 // =====================
@@ -1095,17 +1108,24 @@ async function resolveMultiplayerTurn() {
         updates[`${myId}/confirmed`] = false;
         updates[`${myId}/placed`] = [null,null,null];
         updates[`${myId}/agents`] = playerAgents; // Sync HP changes
-        update(ref(db, roomRef.key + '/gameState'), updates);
+        
+        // FIXED: Use child() for pathing
+        update(child(roomRef, 'gameState'), updates);
     }
 }
 
 function syncGameUpdate() {
     if (!roomRef) return;
+    
+    // FIXED: Use child() for pathing
+    const gameStateRef = child(roomRef, 'gameState');
+    
     const updates = {};
     updates[`${myId}/agents`] = playerAgents;
     updates[`${myId}/placed`] = placedCards;
     updates[`${myId}/confirmed`] = confirmedTurn;
-    update(ref(db, roomRef.key + '/gameState'), updates);
+    
+    update(gameStateRef, updates);
 }
 
 function generateSpecialHand() {
