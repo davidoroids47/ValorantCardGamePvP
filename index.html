@@ -518,7 +518,7 @@ transition: all 0.4s ease;
 <!-- FIREBASE MODULE SCRIPT -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, set, get, onValue, update, push, remove, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, update, push, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyC3KdYnUGBZa-9Ja2pC8aWP-90PnJAhd0U",
@@ -783,11 +783,16 @@ window.createRoom = function() {
     roomRef = newRoomRef;
     const roomId = roomRef.key;
 
+    // Initialize gameState immediately to prevent null reference issues
     const initialState = {
         status: "waiting",
         host: { agents: playerAgents },
         guest: { agents: [] },
-        turn: 1
+        turn: 1,
+        gameState: { 
+            p1: { agents: playerAgents, placed: [null,null,null], confirmed: false },
+            p2: { agents: [], placed: [null,null,null], confirmed: false }
+        }
     };
 
     set(roomRef, initialState);
@@ -819,17 +824,14 @@ window.joinRoom = function() {
         generateSpecialHand();
         initDecks();
 
-        // Initialize gameState node for both players
-        const initialState = {
-            p1: { agents: data.host.agents, placed: [null,null,null], confirmed: false },
-            p2: { agents: playerAgents, placed: [null,null,null], confirmed: false }
-        };
-
-        update(r, {
+        // Update database with guest info and initialize gameState for P2
+        const updates = {
             guest: { agents: playerAgents },
             status: "playing",
-            gameState: initialState
-        });
+            ['gameState/p2']: { agents: playerAgents, placed: [null,null,null], confirmed: false }
+        };
+
+        update(r, updates);
 
         startGameLocal();
         listenForUpdates();
@@ -846,17 +848,9 @@ function listenForGameStart() {
         const data = snapshot.val();
         if (!data) return;
         
+        // If I am Host and Guest joined
         if (isHost && data.status === "playing" && !enemyAgents.length) {
             enemyAgents = data.guest.agents;
-            
-            // Host initializes game state if not present (safety)
-            if(!data.gameState) {
-                 set(ref(roomRef, 'gameState'), {
-                    p1: { agents: playerAgents, placed: [null,null,null], confirmed: false },
-                    p2: { agents: enemyAgents, placed: [null,null,null], confirmed: false }
-                });
-            }
-
             startGameLocal();
             listenForUpdates(); 
         }
@@ -864,8 +858,8 @@ function listenForGameStart() {
 }
 
 function listenForUpdates() {
-    // FIXED: Use child() or ref(roomRef, '...') instead of string concatenation
-    onValue(ref(roomRef, 'gameState'), (snapshot) => {
+    // Listen specifically to the gameState node
+    onValue(ref(db, roomRef.key + '/gameState'), (snapshot) => {
         const state = snapshot.val();
         if (!state) return;
 
@@ -880,10 +874,9 @@ function listenForUpdates() {
         }
 
         // 2. Check for Resolution
+        // Both must be confirmed, and the game must not be over
         if (myData && oppData && myData.confirmed && oppData.confirmed && !gameOver) {
-            // Both confirmed. Resolve.
-            // Get Opponent Cards
-            enemyPlacedCards = oppData.placed;
+            enemyPlacedCards = oppData.placed || [null,null,null];
             resolveMultiplayerTurn();
         }
         
@@ -972,7 +965,7 @@ window.selectAgentSwap = function(i) {
 }
 
 window.placeCard = function(i) {
-    if (isPlacingCard || confirmedTurn) return;
+    if (isPlacingCard || confirmedTurn) return; // Lock check
     if (selectedCardIndex === null && selectedSpecialIndex === null) return;
     if (playerAgents[i].hp === 0) return alert("Your agent is dead!");
     if (enemyAgents[i].hp === 0) return alert("No enemy here!");
@@ -1045,19 +1038,26 @@ window.confirmTurn = function() {
     document.getElementById("confirm-btn").disabled = true;
     document.getElementById("confirm-btn").innerText = "Locked In!";
 
-    // FIXED: Use ref(roomRef, 'gameState')
-    const gameStateRef = ref(roomRef, 'gameState');
+    // IMMEDIATE UI LOCK: Update UI to reflect confirmedTurn = true so cards cannot be picked up
+    updateBoardUI();
+    updateHandUI(false);
+    updateSpecialHandUI();
+
+    // Sync to Firebase
     const updates = {};
     updates[`${myId}/agents`] = playerAgents;
     updates[`${myId}/placed`] = placedCards;
     updates[`${myId}/confirmed`] = true;
-    update(gameStateRef, updates);
+    update(ref(db, roomRef.key + '/gameState'), updates);
 }
 
 // =====================
 // RESOLUTION
 // =====================
 async function resolveMultiplayerTurn() {
+    // Safety check to prevent double resolution
+    if (gameOver) return;
+
     // 1. Reveal
     revealEnemyCards();
     await new Promise(r => setTimeout(r, 1500)); 
@@ -1091,24 +1091,21 @@ async function resolveMultiplayerTurn() {
         updateBoardUI();
         updateHandUI(false);
 
-        const gameStateRef = ref(roomRef, 'gameState');
         const updates = {};
         updates[`${myId}/confirmed`] = false;
         updates[`${myId}/placed`] = [null,null,null];
         updates[`${myId}/agents`] = playerAgents; // Sync HP changes
-        updates[`${myId}/handCount`] = hand.length;
-        update(gameStateRef, updates);
+        update(ref(db, roomRef.key + '/gameState'), updates);
     }
 }
 
 function syncGameUpdate() {
     if (!roomRef) return;
-    const gameStateRef = ref(roomRef, 'gameState');
     const updates = {};
     updates[`${myId}/agents`] = playerAgents;
     updates[`${myId}/placed`] = placedCards;
     updates[`${myId}/confirmed`] = confirmedTurn;
-    update(gameStateRef, updates);
+    update(ref(db, roomRef.key + '/gameState'), updates);
 }
 
 function generateSpecialHand() {
@@ -1214,7 +1211,7 @@ function updateHandUI(animate = false) {
         } else d.innerText = c;
         if (animate) setTimeout(() => d.classList.add("deal"), i * 150);
         d.onclick = () => {
-            if (confirmedTurn) return; // Lock hand after confirm
+            if (confirmedTurn) return; // Lock check
             selectedCardIndex = i;
             selectedSpecialIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1236,7 +1233,7 @@ function updateSpecialHandUI() {
             d.appendChild(img);
         } else d.innerText = card;
         d.onclick = () => {
-            if (confirmedTurn) return; // Lock hand after confirm
+            if (confirmedTurn) return; // Lock check
             selectedSpecialIndex = i;
             selectedCardIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1253,9 +1250,11 @@ function updateBoardUI() {
         let slot = lanes[i].children[2];
         slot.innerHTML = "";
         slot.classList.remove("place-slot");
+        
+        // Define click logic
         slot.onclick = () => {
-            // LOCKED: Cannot pickup or place after confirming
-            if (confirmedTurn) return;
+            // LOCK: Cannot pickup or place after confirming
+            if (confirmedTurn) return; 
 
             if (placedCards[i]) {
                 // Pick up logic
@@ -1264,7 +1263,9 @@ function updateBoardUI() {
                 if (isSpecial) { specialHand.push(picked.card); selectedSpecialIndex = specialHand.length - 1; }
                 else { hand.push(picked.card); selectedCardIndex = hand.length - 1; }
                 placedCards[i] = null;
+                
                 updateBoardUI(); updateHandUI(false); updateSpecialHandUI();
+                
                 // Visual reselect
                 setTimeout(() => {
                     let cards = document.querySelectorAll(isSpecial ? "#special-hand .card" : "#hand .card");
@@ -1273,6 +1274,8 @@ function updateBoardUI() {
                 }, 0);
                 return;
             }
+            
+            // If not picking up, try to place
             if (selectedCardIndex === null && selectedSpecialIndex === null) return;
             placeCard(i);
         };
