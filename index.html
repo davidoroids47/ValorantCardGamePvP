@@ -894,25 +894,47 @@ function selectAgent(agent, div) {
 // =====================
 // MULTIPLAYER LOGIC
 // =====================
-window.createRoom = function() {
+function generateRoomCode(length = 6) {
+    // Excluded confusing chars: 0/O, 1/I/L
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < length; i++) {
+        code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+}
+
+window.createRoom = async function() {
     if (selectedAgents.length !== 3) return;
-    
+
     isHost = true;
     myId = "p1";
     playerAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
     generateSpecialHand();
     initDecks();
 
-    const newRoomRef = push(ref(db, 'rooms'));
-    roomRef = newRoomRef;
-    const roomId = roomRef.key;
+    // Generate a unique short code
+    let code;
+    let exists = true;
+    let attempts = 0;
+
+    while (exists && attempts < 30) {
+        code = generateRoomCode(6);
+        const snapshot = await get(ref(db, 'rooms/' + code));
+        exists = snapshot.exists();
+        attempts++;
+    }
+
+    if (exists) return alert("Couldn't generate a unique code. Try again.");
+
+    roomRef = ref(db, 'rooms/' + code);
 
     const initialState = {
         status: "waiting",
         host: { agents: playerAgents },
         guest: { agents: [] },
         turn: 1,
-        gameState: { 
+        gameState: {
             p1: { agents: playerAgents, placed: [null,null,null], confirmed: false },
             p2: { agents: [], placed: [null,null,null], confirmed: false }
         }
@@ -922,8 +944,8 @@ window.createRoom = function() {
 
     document.getElementById('lobby-menu').style.display = 'none';
     document.getElementById('waiting-menu').style.display = 'block';
-    document.getElementById('room-code-display').innerText = roomId;
-    
+    document.getElementById('room-code-display').innerText = code;
+
     listenForGameStart();
 };
 
