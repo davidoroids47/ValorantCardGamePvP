@@ -2082,7 +2082,44 @@ function checkWin() {
         setTimeout(() => { if(isHost && roomRef) remove(roomRef); }, 3000);
     }
 }
+// =====================
+// MULTIPLAYER TURN SYNC
+// =====================
+let turnResolving = false;
 
+function listenForUpdates() {
+    const gameStateRef = child(roomRef, 'gameState');
+    onValue(gameStateRef, (snapshot) => {
+        const data = snapshot.val();
+        if (!data || turnResolving || gameOver) return;
+
+        const opponentId = myId === 'p1' ? 'p2' : 'p1';
+        const opponentData = data[opponentId];
+        const myData = data[myId];
+
+        // Turn indicator while waiting
+        const indicator = document.getElementById('turn-indicator');
+        if (myData && myData.confirmed && opponentData && !opponentData.confirmed) {
+            indicator.style.display = 'block';
+            indicator.innerText = 'Waiting for opponent...';
+        } else {
+            indicator.style.display = 'none';
+        }
+
+        // Both confirmed → resolve
+        if (opponentData && opponentData.confirmed && myData && myData.confirmed) {
+            turnResolving = true;
+            enemyPlacedCards = opponentData.placed || [null, null, null];
+            if (opponentData.agents) enemyAgents = opponentData.agents;
+
+            indicator.style.display = 'none';
+
+            resolveMultiplayerTurn().then(() => {
+                turnResolving = false;
+            });
+        }
+    });
+}
 // =====================
 // INIT
 // =====================
