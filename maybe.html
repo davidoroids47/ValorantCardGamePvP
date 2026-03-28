@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Valorant Card Game PvP</title>
+<style>
+/* BODY + BACKGROUND */
+body {
+    margin: 0;
+    color: white;
+    font-family: Arial;
+    text-align: center;
+    background: url("https://raw.githubusercontent.com/davidoroids47/card-images/main/Background.png") no-repeat center center fixed;
+    background-size: cover;
+}
+
+/* DARK OVERLAY */
+body::before {
+    content: "";
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(3px);
+    z-index: -1;
+}
+
+/* GAME AREA */
+#game { position: relative; }
+
+.game-area {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 40px;
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.board-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.row {
+    display: flex;
+    justify-content: center;
+    margin: 20px;
+}
+
+.lane {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 10px;
+    background: rgba(255,255,255,0.05);
+    padding: 10px;
+    border-radius: 15px;
+}
+
+.slot {
+    width: 130px;
+    height: 170px;
+    border: 2px dashed rgba(255,255,255,0.3);
+    margin: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    font-size: 12px;
+    border-radius: 14px;
+    transition: all 0.2s ease;
+    overflow: hidden;
+    cursor: pointer;
+    position: relative;
+}
+
+.slot:hover {
+    border-color: rgba(255,255,255,0.7);
+    transform: scale(1.04);
+}
+
+.place-slot {
+    font-size: 60px;
+    color: rgba(255,255,255,0.25);
+    font-weight: bold;
+}
+
+.hand {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.confirm-btn {
+    padding: 18px 28px;
+    font-size: 18px;
+    font-weight: bold;
+    background: #2ecc71;
+    border: none;
+    border-radius: 10px;
+    color: black;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.confirm-btn:hover { background: #27ae60; transform: scale(1.05); }
+.confirm-btn:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
+
+/* CARD IMAGES */
+.slot img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+    pointer-events: none;
+    transition: transform 0.2s ease;
+}
+
+/* SELECTED STATE */
+.selected {
+    border: 2px solid #00ffcc !important;
+    box-shadow: 0 0 20px #00ffcc;
+    transform: scale(1.1);
+}
+
+/* VOLUME */
+.volume-control {
+    position: fixed;
+    top: 20px; right: 20px;
+    background: rgba(0,0,0,0.6);
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 14px;
+    z-index: 10;
+}
+.volume-control input { cursor: pointer; }
+
+/* RESULT */
+#result {
+    position: fixed;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    font-size: 48px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    opacity: 0;
+    z-index: 9999;
+    transition: all 0.4s ease;
+}
+#result.win { opacity: 1; transform: translate(-50%, -50%) scale(1.3); color: #00ff88; text-shadow: 0 0 10px #00ff88; }
+#result.lose { opacity: 1; transform: translate(-50%, -50%) scale(1.3); color: #ff4444; text-shadow: 0 0 10px #ff4444; }
+
+/* DEAD TEXT */
+.dead-text { color: #ff2b2b; font-weight: bold; font-size: 16px; text-shadow: 0 0 5px #ff2b2b; }
+
+/* TURN INDICATOR */
+.turn-indicator {
+    position: fixed;
+    top: 100px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.9);
+    padding: 10px 20px;
+    border-radius: 20px;
+    border: 2px solid #00ffcc;
+    color: #00ffcc;
+    font-weight: bold;
+    z-index: 500;
+    display: none;
+}
+
+/* ===================== */
+/* LOBBY & AGENT SELECT STYLES */
+/* ===================== */
+
+#agent-selection {
+    margin-top: 50px;
+    padding: 20px;
+}
+
+.lobby-container {
+    background: rgba(0,0,0,0.8);
+    border: 2px solid #ff4655;
+    border-radius: 15px;
+    padding: 30px;
+    max-width: 600px;
+    margin: 20px auto;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.lobby-input {
+    padding: 12px;
+    font-size: 16px;
+    border-radius: 8px;
+    border: 1px solid #555;
+    background: #222;
+    color: white;
+    width: 80%;
+    text-align: center;
+}
+
+.lobby-btn {
+    padding: 12px 30px;
+    font-size: 16px;
+    font-weight: bold;
+    background: #ff4655;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+    transition: 0.2s;
+    margin: 5px;
+}
+
+.lobby-btn:hover { background: #ff6b7a; transform: scale(1.05); }
+.lobby-btn:disabled { background: #444; color: #666; cursor: not-allowed; }
+
+.lobby-btn.secondary {
+    background: #333;
+    border: 1px solid #555;
+}
+
+#status-text {
+    color: #aaa;
+    font-size: 14px;
+    min-height: 20px;
+}
+
+#room-code-display {
+    color: #00ffcc;
+    font-size: 24px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    user-select: all;
+}
+
+/* HIDDEN CLASS */
+.hidden { display: none !important; }
+
+</style>
+</head>
+<body>
+
+<!-- AUDIO -->
+<audio id="bg-music" loop>
+    <source src="https://raw.githubusercontent.com/davidoroids47/card-images/main/Valorant%20Main%20Menu%20-%20Official%20Theme%20%20Episode%206%20Act%20I.mp3" type="audio/mpeg">
+</audio>
+<audio id="sfx-attack" src="https://raw.githubusercontent.com/davidoroids47/card-images/main/Attack.mp3"></audio>
+<audio id="sfx-death" src="https://raw.githubusercontent.com/davidoroids47/card-images/main/Dead.mp3"></audio>
+<audio id="sfx-place" src="https://raw.githubusercontent.com/davidoroids47/card-images/main/PlaceCard.mp3"></audio>
+<audio id="sfx-hover" src="https://raw.githubusercontent.com/davidoroids47/card-images/main/Hover.mp3"></audio>
+<audio id="sfx-confirm" src="https://raw.githubusercontent.com/davidoroids47/card-images/main/Confirm.mp3"></audio>
+<audio id="sfx-start" src="https://raw.githubusercontent.com/davidoroids47/card-images/main/StartGame.mp3"></audio>
+
+<div class="volume-control">🔊 <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.5"></div>
+<div class="volume-control" style="top:60px;">🎵 SFX <input type="range" id="sfxSlider" min="0" max="1" step="0.01" value="0.5"></div>
+
+<!-- TURN INDICATOR -->
+<div class="turn-indicator" id="turn-indicator">Your Turn</div>
+
+<!-- RESULT -->
+<div id="result"></div>
+
+<!-- ========================================== -->
+<!-- STEP 1: AGENT SELECTION & LOBBY (Visible First) -->
+<!-- ========================================== -->
+<div id="lobby-ui">
+    <div id="agent-selection">
+        <h1 style="color:#ff4655; margin-bottom:10px;">VALORANT CARD GAME</h1>
+        <h3 id="select-status">Select 3 Agents</h3>
+        <div id="agent-options" class="row"></div>
+    </div>
+
+    <!-- This container appears only after 3 agents selected -->
+    <div id="matchmaking-box" class="lobby-container hidden">
+        <div id="status-text">Ready to Play</div>
+        
+        <div>
+            <button id="create-btn" class="lobby-btn">Create Room</button>
+        </div>
+        
+        <div style="border-top:1px solid #444; padding-top:15px; margin-top:10px;">
+            <input type="text" id="join-code-input" class="lobby-input" placeholder="Enter Room Code">
+            <br>
+            <button id="join-btn" class="lobby-btn secondary">Join Room</button>
+        </div>
+    </div>
+
+    <!-- Waiting Screen (Host Only) -->
+    <div id="waiting-box" class="lobby-container hidden">
+        <h3>Waiting for Opponent...</h3>
+        <p>Give this code to your friend:</p>
+        <div id="room-code-display">CODE</div>
+        <button class="lobby-btn secondary" onclick="copyCode()">Copy Code</button>
+        <div id="wait-status" style="color:#aaa; margin-top:10px;">Waiting...</div>
+    </div>
+</div>
+
+<!-- ========================================== -->
+<!-- STEP 2: GAME AREA (Hidden Initially) -->
+<!-- ========================================== -->
+<div id="game" class="hidden">
+    <div class="game-area">
+        <div class="board-wrapper">
+            <div class="row" id="lanes"></div>
+        </div>
+        <div class="controls">
+            <button class="confirm-btn" id="confirm-btn" onclick="confirmTurn()">Confirm Turn</button>
+        </div>
+    </div>
+    <div id="special-hand" class="hand" style="margin-bottom:10px;"></div>
+    <div id="hand" class="hand"></div>
+</div>
+
+<!-- ========================================== -->
+<!-- FIREBASE MODULE SCRIPT -->
+<!-- ========================================== -->
+<script type="module">
+    // =====================
+    // FIREBASE SETUP
+    // =====================
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, get, onValue, update, push } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyC3KdYnUGBZa-9Ja2pC8aWP-90PnJAhd0U",
+        authDomain: "card-game-56bf7.firebaseapp.com",
+        databaseURL: "https://card-game-56bf7-default-rtdb.asia-southeast1.firebasedatabase.app",
+        projectId: "card-game-56bf7",
+        storageBucket: "card-game-56bf7.firebasestorage.app",
+        messagingSenderId: "806345391190",
+        appId: "1:806345391190:web:d3217beea6c4d7b987cff7",
+        measurementId: "G-YJ9MRG34YY"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    let roomRef = null;
+    let myId = null;
+    let isHost = false;
+
+    // =====================
+    // CONSTANTS & STATE
+    // =====================
+    const sfxAttack = document.getElementById("sfx-attack");
+    const sfxDeath = document.getElementById("sfx-death");
+    const bgMusic = document.getElementById("bg-music");
+    const musicSlider = document.getElementById("volumeSlider");
+    const sfxSlider = document.getElementById("sfxSlider");
+    const sfxPlace = document.getElementById("sfx-place");
+    const sfxHover = document.getElementById("sfx-hover");
+    const sfxConfirm = document.getElementById("sfx-confirm");
+    const sfxStart = document.getElementById("sfx-start");
+
+    // Data Constants (Must be defined before use)
+    const agentUtilities = {
+      "Phoenix": ["Blaze","Curveball","Hot Hands"], "Reyna": ["Leer","Devour","Dismiss"],
+      "Raze": ["Boom Bot","Blast Pack","Paint Shells"], "Jett": ["Cloudburst","Updraft","Tailwind"],
+      "Brimstone": ["Stim Beacon","Incendiary","Sky Smoke"], "Omen": ["Shrouded Step","Paranoia","Dark Cover"],
+      "Sage": ["Barrier Orb","Slow Orb","Healing Orb"], "Chamber": ["Trademark","Headhunter","Rendezvous"],
+      "Sova": ["Owl Drone","Shock Dart","Recon Bolt"], "Breach": ["Aftershock","Flashpoint","Fault Line"]
+    };
+
+    const agentRoles = {
+      "Brimstone": "Controller", "Omen": "Controller", "Sova": "Initiator", "Breach": "Initiator",
+      "Sage": "Sentinel", "Chamber": "Sentinel", "Jett": "Duelist", "Reyna": "Duelist", "Phoenix": "Duelist", "Raze": "Duelist"
+    };
+
+    const agentImages = {
+      "Breach": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Breach.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/BreachLow.png" },
+      "Brimstone": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Brim.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/BrimLow.png" },
+      "Chamber": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Chamber.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/ChamberLow.png" },
+      "Jett": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Jett.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/JettLow.png" },
+      "Omen": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Omen.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/OmenLow.png" },
+      "Phoenix": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Phoenix.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Phoenix%20Low.png" },
+      "Raze": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Raze.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/RazeLow.png" },
+      "Reyna": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Reyna.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/ReynaLow.png" },
+      "Sage": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Sage.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/SageLow.png" },
+      "Sova": { full: "https://raw.githubusercontent.com/davidoroids47/card-images/main/Sova.png", low: "https://raw.githubusercontent.com/davidoroids47/card-images/main/SovaLow.png" }
+    };
+
+    const cardImages = {
+      "Blaze (Phoenix)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/1.png",
+      "Curveball (Phoenix)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/2.png",
+      "Hot Hands (Phoenix)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/3.png",
+      "Leer (Reyna)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/4.png",
+      "Devour (Reyna)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/5.png",
+      "Dismiss (Reyna)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/6.png",
+      "Boom Bot (Raze)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/7.png",
+      "Blast Pack (Raze)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/8.png",
+      "Paint Shells (Raze)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/9.png",
+      "Cloudburst (Jett)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/10.png",
+      "Updraft (Jett)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/11.png",
+      "Tailwind (Jett)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/12.png",
+      "Stim Beacon (Brimstone)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/13.png",
+      "Incendiary (Brimstone)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/14.png",
+      "Sky Smoke (Brimstone)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/15.png",
+      "Shrouded Step (Omen)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/16.png",
+      "Paranoia (Omen)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/17.png",
+      "Dark Cover (Omen)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/18.png",
+      "Barrier Orb (Sage)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/19.png",
+      "Slow Orb (Sage)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/20.png",
+      "Healing Orb (Sage)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/21.png",
+      "Trademark (Chamber)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/22.png",
+      "Headhunter (Chamber)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/23.png",
+      "Rendezvous (Chamber)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/24.png",
+      "Owl Drone (Sova)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/25.png",
+      "Shock Dart (Sova)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/26.png",
+      "Recon Bolt (Sova)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/27.png",
+      "Aftershock (Breach)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/28.png",
+      "Flashpoint (Breach)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/29.png",
+      "Fault Line (Breach)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/30.png",
+      "Attack": "https://raw.githubusercontent.com/davidoroids47/card-images/main/31.png" ,
+      "Deflect (Controller)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/Controller.png" ,
+      "Draw2 (Initiator)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/Initiator.png" ,
+      "BlockAttack (Sentinel)": "https://raw.githubusercontent.com/davidoroids47/card-images/main/Sentinel.png" 
+    };
+
+    // Game State Variables
+    let agentDeck = Object.keys(agentUtilities);
+    let selectedAgents = []; // Temporary storage for selection
+    
+    let myAgents = [];
+    let oppAgents = [];
+    let myHand = [];
+    let myPlacedCards = [null, null, null];
+    let gameOver = false;
+    let confirmedTurn = false;
+    let specialHand = [];
+    let selectedCardIndex = null;
+    let selectedSpecialIndex = null;
+
+    // =====================
+    // INITIALIZATION
+    // =====================
+    shuffle(agentDeck);
+    bgMusic.volume = musicSlider.value;
+    
+    musicSlider.addEventListener("input", () => bgMusic.volume = musicSlider.value);
+    sfxSlider.addEventListener("input", () => {
+        sfxAttack.volume = sfxSlider.value;
+        sfxDeath.volume = sfxSlider.value;
+        sfxPlace.volume = sfxSlider.value;
+        sfxHover.volume = sfxSlider.value;
+        sfxConfirm.volume = sfxSlider.value;
+    });
+
+    document.addEventListener("click", () => bgMusic.play().catch(()=>{}), { once: true });
+
+    // Draw Agent Selection UI immediately
+    drawAgentChoices();
+
+    // =====================
+    // UTILITY FUNCTIONS
+    // =====================
+    function shuffle(deck) {
+        for (let i = deck.length - 1; i > 0; i--) {
+            let j = Math.floor(Math.random() * (i + 1));
+            [deck[i], deck[j]] = [deck[j], deck[i]];
+        }
+    }
+
+    function isAttack(card) { return card === "Attack"; }
+    function isCompatible(card, agentName) {
+        if (!card || isAttack(card)) return false;
+        return agentUtilities[agentName].includes(card.split(" (")[0]);
+    }
+
+    // =====================
+    // AGENT SELECTION LOGIC
+    // =====================
+    function drawAgentChoices() {
+        let container = document.getElementById("agent-options");
+        container.innerHTML = "";
+        
+        // Pick 5 random agents to choose from
+        let choices = agentDeck.slice(0, 5);
+        
+        choices.forEach(agent => {
+            let div = document.createElement("div");
+            div.className = "slot card";
+            let img = document.createElement("img");
+            img.src = agentImages[agent].full;
+            img.style.width = "140px"; img.style.height = "180px";
+            img.style.objectFit = "cover"; img.style.borderRadius = "12px";
+            div.appendChild(img);
+            
+            div.onclick = () => {
+                // Toggle selection
+                if (selectedAgents.includes(agent)) {
+                    selectedAgents = selectedAgents.filter(a => a !== agent);
+                    div.classList.remove("selected");
+                } else {
+                    if (selectedAgents.length >= 3) return alert("You can only select 3 agents!");
+                    selectedAgents.push(agent);
+                    div.classList.add("selected");
+                }
+                
+                updateLobbyUI();
+            };
+            container.appendChild(div);
+        });
+    }
+
+    function updateLobbyUI() {
+        const status = document.getElementById("select-status");
+        const matchBox = document.getElementById("matchmaking-box");
+        
+        if (selectedAgents.length === 3) {
+            status.innerText = "Team Selected!";
+            status.style.color = "#00ffcc";
+            matchBox.classList.remove("hidden");
+        } else {
+            status.innerText = `Select ${3 - selectedAgents.length} more Agents`;
+            status.style.color = "white";
+            matchBox.classList.add("hidden");
+        }
+    }
+
+    // =====================
+    // LOBBY LOGIC (Create/Join)
+    // =====================
+    document.getElementById("create-btn").onclick = () => {
+        if (selectedAgents.length !== 3) return;
+
+        isHost = true;
+        myId = "p1";
+        myAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
+        generateSpecialHand();
+
+        // Create DB Entry
+        const newRoomRef = push(ref(db, 'rooms'));
+        roomRef = newRoomRef;
+        const roomId = roomRef.key;
+
+        const initialState = {
+            status: "waiting",
+            host: selectedAgents,
+            guest: [],
+            createdAt: Date.now(),
+            gameState: {
+                turn: 0,
+                p1: { agents: myAgents, hand: [], placed: [null,null,null], confirmed: false },
+                p2: { agents: [], hand: [], placed: [null,null,null], confirmed: false }
+            }
+        };
+
+        set(roomRef, initialState);
+
+        // UI Switch
+        document.getElementById("matchmaking-box").classList.add("hidden");
+        document.getElementById("waiting-box").classList.remove("hidden");
+        document.getElementById("room-code-display").innerText = roomId;
+        
+        listenForGameStart();
+    };
+
+    document.getElementById("join-btn").onclick = () => {
+        if (selectedAgents.length !== 3) return alert("Select 3 agents first!");
+        
+        const roomId = document.getElementById("join-code-input").value.trim();
+        if (!roomId) return alert("Enter a Room Code!");
+
+        const r = ref(db, 'rooms/' + roomId);
+        get(r).then(snapshot => {
+            if (!snapshot.exists()) return alert("Room not found!");
+            
+            const data = snapshot.val();
+            if (data.status !== "waiting") return alert("Room is full or started.");
+
+            isHost = false;
+            myId = "p2";
+            roomRef = r;
+
+            myAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
+            oppAgents = data.host.map(a => ({ name: a, hp: 100 })); // Host is P1
+            
+            generateSpecialHand();
+
+            // Update DB
+            update(roomRef, {
+                guest: selectedAgents,
+                status: "playing",
+                [`gameState/p2/agents`]: myAgents
+            });
+
+            // Join game immediately
+            document.getElementById("lobby-ui").classList.add("hidden");
+            startGameLocal();
+            listenForGameUpdates();
+
+        }).catch(err => alert("Error: " + err.message));
+    };
+
+    window.copyCode = function() {
+        const code = document.getElementById("room-code-display").innerText;
+        navigator.clipboard.writeText(code).then(() => alert("Code copied!"));
+    };
+
+    function listenForGameStart() {
+        onValue(roomRef, (snapshot) => {
+            const data = snapshot.val();
+            if (!data) return;
+
+            if (data.status === "playing" && isHost && oppAgents.length === 0) {
+                oppAgents = data.guest.map(a => ({ name: a, hp: 100 }));
+                document.getElementById("lobby-ui").classList.add("hidden");
+                
+                initializeSharedDeck();
+                startGameLocal();
+                listenForGameUpdates();
+            }
+        });
+    }
+
+    function initializeSharedDeck() {
+        let masterDeck = Object.keys(cardImages)
+            .filter(c => !c.includes("Sentinel") && !c.includes("Initiator") && !c.includes("Controller"))
+            .concat(Array(10).fill("Attack"));
+        shuffle(masterDeck);
+
+        let p1Hand = masterDeck.splice(0, 3);
+        let p2Hand = masterDeck.splice(0, 3);
+
+        update(roomRef, {
+            'gameState/deck': masterDeck,
+            'gameState/p1/hand': p1Hand,
+            'gameState/p1/handCount': 3,
+            'gameState/p2/hand': p2Hand,
+            'gameState/p2/handCount': 3,
+            'gameState/turn': 1
+        });
+    }
+
+    // =====================
+    // GAME FLOW
+    // =====================
+    function startGameLocal() {
+        sfxStart.play().catch(()=>{});
+        document.getElementById("game").classList.remove("hidden");
+        createBoard();
+        updateMyUI();
+        updateOpponentUI();
+    }
+
+    function createBoard() {
+        let lanesDiv = document.getElementById("lanes");
+        lanesDiv.innerHTML = "";
+        for (let i = 0; i < 3; i++) {
+            let lane = document.createElement("div");
+            lane.className = "lane";
+            lane.innerHTML = `
+                <div class="slot agent"></div> <!-- Opponent Agent -->
+                <div class="slot enemy-slot">?</div> <!-- Opponent Card -->
+                <div class="slot place-slot" onclick="placeCard(${i})">+</div> <!-- My Card -->
+                <div class="slot agent" onclick="selectAgentSwap(${i})"></div> <!-- My Agent -->
+            `;
+            lanesDiv.appendChild(lane);
+        }
+    }
+
+    function generateSpecialHand() {
+        specialHand = [];
+        let hasDuelistAttack = false;
+        myAgents.forEach(agent => {
+            let role = agentRoles[agent.name];
+            if (!role) return;
+            if (role === "Sentinel") specialHand.push("BlockAttack (Sentinel)");
+            if (role === "Initiator") specialHand.push("Draw2 (Initiator)");
+            if (role === "Controller") specialHand.push("Deflect (Controller)");
+            if (role === "Duelist" && !hasDuelistAttack) {
+                specialHand.push("Attack");
+                hasDuelistAttack = true;
+            }
+        });
+        updateSpecialHandUI();
+    }
+
+    // =====================
+    // SYNC LOGIC
+    // =====================
+    function listenForGameUpdates() {
+        onValue(ref(db, roomRef + '/gameState'), (snapshot) => {
+            const state = snapshot.val();
+            if (!state) return;
+
+            // 1. Sync Hands
+            if (state[myId] && state[myId].hand) {
+                myHand = state[myId].hand;
+                updateHandUI();
+            }
+
+            // 2. Sync Agents
+            if (state[myId] && state[myId].agents) {
+                myAgents = state[myId].agents;
+                updateMyUI();
+            }
+            if (state[getOppId()] && state[getOppId()].agents) {
+                oppAgents = state[getOppId()].agents;
+                updateOpponentUI();
+            }
+
+            // 3. Resolution Check
+            const p1Ready = state.p1 && state.p1.confirmed;
+            const p2Ready = state.p2 && state.p2.confirmed;
+
+            if (p1Ready && p2Ready && !gameOver) {
+                if (isHost) resolveTurnLogic(state);
+            } else {
+                // Status Text
+                const indicator = document.getElementById("turn-indicator");
+                if (confirmedTurn) {
+                    indicator.innerText = "Waiting for Opponent...";
+                    indicator.style.display = "block";
+                } else if (state[getOppId()] && state[getOppId()].confirmed) {
+                    indicator.innerText = "Opponent is Ready!";
+                    indicator.style.display = "block";
+                } else {
+                    indicator.style.display = "none";
+                }
+            }
+        });
+    }
+
+    function getOppId() { return myId === "p1" ? "p2" : "p1"; }
+
+    window.confirmTurn = function() {
+        if (gameOver || confirmedTurn) return;
+        
+        confirmedTurn = true;
+        sfxConfirm.play().catch(()=>{});
+        document.getElementById("confirm-btn").disabled = true;
+        document.getElementById("confirm-btn").innerText = "Locked In!";
+
+        const updates = {};
+        updates[`${myId}/confirmed`] = true;
+        updates[`${myId}/placed`] = myPlacedCards;
+        updates[`${myId}/hand`] = myHand;
+        
+        update(ref(db, roomRef + '/gameState'), updates);
+    };
+
+    // =====================
+    // RESOLUTION (HOST ONLY)
+    // =====================
+    async function resolveTurnLogic(state) {
+        let p1Cards = state.p1.placed || [null,null,null];
+        let p2Cards = state.p2.placed || [null,null,null];
+
+        // Simple Delay for suspense
+        await new Promise(r => setTimeout(r, 1000));
+
+        let p1Agents = state.p1.agents;
+        let p2Agents = state.p2.agents;
+
+        // Combat Loop
+        for (let i = 0; i < 3; i++) {
+            let pA = p1Agents[i];
+            let eA = p2Agents[i];
+            let pC = p1Cards[i];
+            let eC = p2Cards[i];
+
+            if (!pA || pA.hp <= 0 || !eA || eA.hp <= 0) continue;
+
+            // P1 Attacks
+            if (pC && pC.card === "Attack") {
+                if (eC && eC.card === "BlockAttack (Sentinel)") {
+                    // Blocked
+                } else if (eC && isCompatible(eC.card, eA.name)) {
+                    eA.hp = eA.hp === 100 ? 1 : 0;
+                } else {
+                    eA.hp = 0;
+                }
+            }
+
+            // P2 Attacks
+            if (eC && eC.card === "Attack") {
+                if (pC && pC.card === "BlockAttack (Sentinel)") {
+                    // Blocked
+                } else if (pC && isCompatible(pC.card, pA.name)) {
+                    pA.hp = pA.hp === 100 ? 1 : 0;
+                } else {
+                    pA.hp = 0;
+                }
+            }
+        }
+
+        // Check Win
+        let p1Alive = p1Agents.some(a => a.hp > 0);
+        let p2Alive = p2Agents.some(a => a.hp > 0);
+        let winner = null;
+        if (!p1Alive) winner = "p2";
+        if (!p2Alive) winner = "p1";
+
+        // Draw Cards
+        let currentDeck = state.deck || [];
+        let newP1Hand = [...state.p1.hand];
+        let newP2Hand = [...state.p2.hand];
+
+        while (newP1Hand.length < 3 && currentDeck.length > 0) newP1Hand.push(currentDeck.pop());
+        while (newP2Hand.length < 3 && currentDeck.length > 0) newP2Hand.push(currentDeck.pop());
+
+        // Push New State
+        const newState = {
+            deck: currentDeck,
+            p1: { agents: p1Agents, hand: newP1Hand, placed: [null,null,null], confirmed: false },
+            p2: { agents: p2Agents, hand: newP2Hand, placed: [null,null,null], confirmed: false },
+            turn: state.turn + 1,
+            winner: winner
+        };
+
+        await set(ref(db, roomRef + '/gameState'), newState);
+
+        // Reset Local
+        confirmedTurn = false;
+        document.getElementById("confirm-btn").disabled = false;
+        document.getElementById("confirm-btn").innerText = "Confirm Turn";
+        myPlacedCards = [null,null,null];
+    }
+
+    // =====================
+    // UI UPDATES
+    // =====================
+    function updateMyUI() {
+        let lanes = document.getElementById("lanes").children;
+        for (let i = 0; i < 3; i++) {
+            let a = myAgents[i];
+            let div = lanes[i].children[3];
+            div.innerHTML = "";
+
+            if (!a || a.hp === 0) {
+                div.innerHTML = '<span class="dead-text">DEAD</span>';
+                continue;
+            }
+            let img = document.createElement("img");
+            img.src = a.hp === 100 ? agentImages[a.name].full : agentImages[a.name].low;
+            div.appendChild(img);
+        }
+    }
+
+    function updateOpponentUI() {
+        let lanes = document.getElementById("lanes").children;
+        for (let i = 0; i < 3; i++) {
+            let a = oppAgents[i];
+            let div = lanes[i].children[0];
+            div.innerHTML = "";
+
+            if (!a || a.hp === 0) {
+                div.innerHTML = '<span class="dead-text">DEAD</span>';
+                continue;
+            }
+            let img = document.createElement("img");
+            img.src = a.hp === 100 ? agentImages[a.name].full : agentImages[a.name].low;
+            div.appendChild(img);
+        }
+    }
+
+    function updateHandUI() {
+        let handDiv = document.getElementById("hand");
+        handDiv.innerHTML = "";
+
+        myHand.forEach((c, i) => {
+            let d = document.createElement("div");
+            d.className = "slot card";
+            if (cardImages[c]) {
+                let img = document.createElement("img");
+                img.src = cardImages[c];
+                d.appendChild(img);
+            } else { d.innerText = c; }
+
+            d.onclick = () => {
+                selectedCardIndex = i;
+                selectedSpecialIndex = null;
+                document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
+                d.classList.add("selected");
+            };
+            handDiv.appendChild(d);
+        });
+    }
+
+    function updateSpecialHandUI() {
+        let div = document.getElementById("special-hand");
+        div.innerHTML = "";
+
+        specialHand.forEach((card, i) => {
+            let d = document.createElement("div");
+            d.className = "slot card";
+            if (cardImages[card]) {
+                let img = document.createElement("img");
+                img.src = cardImages[card];
+                d.appendChild(img);
+            } else { d.innerText = card; }
+
+            d.onclick = () => {
+                selectedSpecialIndex = i;
+                selectedCardIndex = null;
+                document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
+                d.classList.add("selected");
+            };
+            div.appendChild(d);
+        });
+    }
+
+    // =====================
+    // ACTIONS
+    // =====================
+    window.placeCard = function(i) {
+        if (confirmedTurn) return alert("Turn locked!");
+        if (myAgents[i].hp === 0) return alert("Agent is dead!");
+        
+        let cardData = null;
+        
+        // Check which hand is selected
+        if (selectedSpecialIndex !== null) {
+            cardData = specialHand[selectedSpecialIndex];
+            // Optional: remove from special hand if single use?
+            // For now, keeping it simple.
+        } else if (selectedCardIndex !== null) {
+            cardData = myHand[selectedCardIndex];
+            myHand.splice(selectedCardIndex, 1);
+            selectedCardIndex = null;
+        } else {
+            return; // Nothing selected
+        }
+
+        myPlacedCards[i] = { card: cardData };
+
+        // Update Visuals
+        let lanes = document.getElementById("lanes").children;
+        let slot = lanes[i].children[2]; // Player Slot
+        slot.innerHTML = "";
+        
+        let img = document.createElement("img");
+        img.src = cardImages[cardData];
+        slot.appendChild(img);
+
+        updateHandUI();
+    };
+
+    window.selectAgentSwap = function(i) {
+        alert("Swapping disabled in PvP MVP.");
+    };
+
+</script>
+</body>
+</html>
