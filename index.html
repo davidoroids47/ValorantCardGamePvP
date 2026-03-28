@@ -518,7 +518,7 @@ transition: all 0.4s ease;
 <!-- FIREBASE MODULE SCRIPT -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, set, get, onValue, update, push, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, update, push, remove, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyC3KdYnUGBZa-9Ja2pC8aWP-90PnJAhd0U",
@@ -776,8 +776,8 @@ window.createRoom = function() {
     isHost = true;
     myId = "p1";
     playerAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
-    generateSpecialHand(); // Generate specials for me
-    initDecks(); // Init my deck
+    generateSpecialHand();
+    initDecks();
 
     const newRoomRef = push(ref(db, 'rooms'));
     roomRef = newRoomRef;
@@ -785,8 +785,8 @@ window.createRoom = function() {
 
     const initialState = {
         status: "waiting",
-        host: { agents: playerAgents, placed: [null,null,null], confirmed: false },
-        guest: { agents: [], placed: [null,null,null], confirmed: false },
+        host: { agents: playerAgents },
+        guest: { agents: [] },
         turn: 1
     };
 
@@ -815,13 +815,20 @@ window.joinRoom = function() {
         roomRef = r;
 
         playerAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
-        enemyAgents = data.host.agents; // Get opponent data
-        generateSpecialHand(); // Generate specials for me
-        initDecks(); // Init my deck
+        enemyAgents = data.host.agents; 
+        generateSpecialHand();
+        initDecks();
+
+        // Initialize gameState node for both players
+        const initialState = {
+            p1: { agents: data.host.agents, placed: [null,null,null], confirmed: false },
+            p2: { agents: playerAgents, placed: [null,null,null], confirmed: false }
+        };
 
         update(r, {
-            guest: { agents: playerAgents, placed: [null,null,null], confirmed: false },
-            status: "playing"
+            guest: { agents: playerAgents },
+            status: "playing",
+            gameState: initialState
         });
 
         startGameLocal();
@@ -839,17 +846,26 @@ function listenForGameStart() {
         const data = snapshot.val();
         if (!data) return;
         
-        // If I am Host and Guest joined
         if (isHost && data.status === "playing" && !enemyAgents.length) {
             enemyAgents = data.guest.agents;
+            
+            // Host initializes game state if not present (safety)
+            if(!data.gameState) {
+                 set(ref(roomRef, 'gameState'), {
+                    p1: { agents: playerAgents, placed: [null,null,null], confirmed: false },
+                    p2: { agents: enemyAgents, placed: [null,null,null], confirmed: false }
+                });
+            }
+
             startGameLocal();
-            listenForUpdates(); // Start listening for moves
+            listenForUpdates(); 
         }
     });
 }
 
 function listenForUpdates() {
-    onValue(ref(db, roomRef + '/gameState'), (snapshot) => {
+    // FIXED: Use child() or ref(roomRef, '...') instead of string concatenation
+    onValue(ref(roomRef, 'gameState'), (snapshot) => {
         const state = snapshot.val();
         if (!state) return;
 
@@ -891,7 +907,6 @@ function listenForUpdates() {
 // GAME FLOW
 // =====================
 function initDecks() {
-    // Create a local deck for this player (simplifies logic vs shared deck)
     actionDeck = Object.keys(cardImages)
         .filter(c => !c.includes("Sentinel") && !c.includes("Initiator") && !c.includes("Controller"))
         .concat(Array(10).fill("Attack"));
@@ -953,7 +968,6 @@ window.selectAgentSwap = function(i) {
     updateAgentsUI();
     updateBoardUI();
     
-    // Sync Swap
     syncGameUpdate();
 }
 
@@ -1031,12 +1045,13 @@ window.confirmTurn = function() {
     document.getElementById("confirm-btn").disabled = true;
     document.getElementById("confirm-btn").innerText = "Locked In!";
 
-    // Sync my state
+    // FIXED: Use ref(roomRef, 'gameState')
+    const gameStateRef = ref(roomRef, 'gameState');
     const updates = {};
     updates[`${myId}/agents`] = playerAgents;
     updates[`${myId}/placed`] = placedCards;
     updates[`${myId}/confirmed`] = true;
-    update(ref(db, roomRef + '/gameState'), updates);
+    update(gameStateRef, updates);
 }
 
 // =====================
@@ -1045,7 +1060,7 @@ window.confirmTurn = function() {
 async function resolveMultiplayerTurn() {
     // 1. Reveal
     revealEnemyCards();
-    await new Promise(r => setTimeout(r, 1500)); // Wait for animations
+    await new Promise(r => setTimeout(r, 1500)); 
 
     // 2. Combat
     resolveCombat();
@@ -1058,10 +1073,6 @@ async function resolveMultiplayerTurn() {
     updateEnemyUI();
 
     if (!gameOver) {
-        // 5. Collapse (Visual only for now)
-        // collapseLanes(); // Optionally keep this
-        
-        // 6. Clean up Board
         await new Promise(r => setTimeout(r, 1000));
         fadeOutActionCards();
         await new Promise(r => setTimeout(r, 400));
@@ -1080,22 +1091,24 @@ async function resolveMultiplayerTurn() {
         updateBoardUI();
         updateHandUI(false);
 
+        const gameStateRef = ref(roomRef, 'gameState');
         const updates = {};
         updates[`${myId}/confirmed`] = false;
         updates[`${myId}/placed`] = [null,null,null];
         updates[`${myId}/agents`] = playerAgents; // Sync HP changes
         updates[`${myId}/handCount`] = hand.length;
-        update(ref(db, roomRef + '/gameState'), updates);
+        update(gameStateRef, updates);
     }
 }
 
 function syncGameUpdate() {
     if (!roomRef) return;
+    const gameStateRef = ref(roomRef, 'gameState');
     const updates = {};
     updates[`${myId}/agents`] = playerAgents;
     updates[`${myId}/placed`] = placedCards;
     updates[`${myId}/confirmed`] = confirmedTurn;
-    update(ref(db, roomRef + '/gameState'), updates);
+    update(gameStateRef, updates);
 }
 
 function generateSpecialHand() {
@@ -1201,6 +1214,7 @@ function updateHandUI(animate = false) {
         } else d.innerText = c;
         if (animate) setTimeout(() => d.classList.add("deal"), i * 150);
         d.onclick = () => {
+            if (confirmedTurn) return; // Lock hand after confirm
             selectedCardIndex = i;
             selectedSpecialIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1222,6 +1236,7 @@ function updateSpecialHandUI() {
             d.appendChild(img);
         } else d.innerText = card;
         d.onclick = () => {
+            if (confirmedTurn) return; // Lock hand after confirm
             selectedSpecialIndex = i;
             selectedCardIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1239,8 +1254,11 @@ function updateBoardUI() {
         slot.innerHTML = "";
         slot.classList.remove("place-slot");
         slot.onclick = () => {
+            // LOCKED: Cannot pickup or place after confirming
+            if (confirmedTurn) return;
+
             if (placedCards[i]) {
-                // Pick up
+                // Pick up logic
                 let picked = placedCards[i];
                 let isSpecial = picked.card.includes("Sentinel") || picked.card.includes("Initiator") || picked.card.includes("Controller");
                 if (isSpecial) { specialHand.push(picked.card); selectedSpecialIndex = specialHand.length - 1; }
@@ -1395,7 +1413,7 @@ function checkWin() {
         } else {
             resultDiv.innerText = "YOU WIN"; resultDiv.classList.add("win");
         }
-        // Cleanup Room (Optional)
+        // Cleanup Room
         if(isHost) remove(roomRef);
     }
 }
