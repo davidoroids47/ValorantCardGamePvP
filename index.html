@@ -106,11 +106,13 @@ transition: all 0.5s ease;
     color: rgba(255,255,255,0.5);
     font-weight: bold;
 }
+
 /* HAND */
 .hand {
     display: flex;
     justify-content: center;
     margin-top: 20px;
+    flex-wrap: wrap;
 }
 
 /* CONTROLS */
@@ -250,8 +252,10 @@ cursor: pointer;
 }
 
 .card {
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.15s ease;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .card:hover {
@@ -259,9 +263,46 @@ cursor: pointer;
     box-shadow: 0 10px 20px rgba(0,0,0,0.6);
 }
 
+.card:active {
+    cursor: grabbing;
+}
+
+.card.dragging {
+    opacity: 0.4;
+    transform: scale(0.95) !important;
+    box-shadow: 0 0 25px rgba(0,255,204,0.5) !important;
+}
+
 .selected {
     border: 3px solid #00ffcc !important;
     box-shadow: 0 0 15px #00ffcc;
+}
+
+/* DRAG DROP ZONE STATES */
+.place-slot.drag-valid {
+    border-color: #00ffcc !important;
+    border-style: solid !important;
+    background: rgba(0,255,204,0.1);
+    color: #00ffcc;
+    transform: scale(1.06);
+    box-shadow: 0 0 20px rgba(0,255,204,0.4), inset 0 0 15px rgba(0,255,204,0.1);
+}
+
+.place-slot.drag-invalid {
+    border-color: #ff4444 !important;
+    border-style: solid !important;
+    background: rgba(255,68,68,0.08);
+    color: #ff4444;
+    transform: scale(0.96);
+}
+
+.place-slot.drag-hover {
+    border-color: #00ffcc !important;
+    border-style: solid !important;
+    background: rgba(0,255,204,0.2);
+    color: #00ffcc;
+    transform: scale(1.1);
+    box-shadow: 0 0 30px rgba(0,255,204,0.6), inset 0 0 20px rgba(0,255,204,0.15);
 }
 
 /* ANIMATIONS */
@@ -534,6 +575,45 @@ transition: all 0.4s ease;
     pointer-events: none;
     animation: reshuffleFlash 1.8s ease forwards;
 }
+
+/* DROP HINT PULSE */
+@keyframes dropPulse {
+    0%, 100% { box-shadow: 0 0 10px rgba(0,255,204,0.3); }
+    50% { box-shadow: 0 0 25px rgba(0,255,204,0.7), inset 0 0 10px rgba(0,255,204,0.1); }
+}
+.drop-ready { animation: dropPulse 1.2s ease infinite; }
+
+/* DRAG GHOST PREVIEW */
+.drag-ghost-preview {
+    position: fixed;
+    pointer-events: none;
+    z-index: 99999;
+    opacity: 0.85;
+    transform: rotate(-5deg) scale(1.1);
+    transition: none;
+    filter: drop-shadow(0 8px 20px rgba(0,0,0,0.7));
+}
+.drag-ghost-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+}
+
+/* TOUCH DEVICE STYLING */
+@media (hover: none) {
+    .card:hover {
+        transform: none;
+        box-shadow: none;
+    }
+    .slot:hover {
+        border-color: rgba(255,255,255,0.3);
+        transform: none;
+    }
+    .place-slot:hover {
+        color: rgba(255,255,255,0.25);
+    }
+}
 </style>
 </head>
 <body>
@@ -638,7 +718,7 @@ let myId = null;
 let isHost = false;
 
 // =====================
-// ORIGINAL SOUND & ASSETS
+// SOUND & ASSETS
 // =====================
 const sfxAttack = document.getElementById("sfx-attack");
 const sfxDeath = document.getElementById("sfx-death");
@@ -777,9 +857,14 @@ let selectedSpecialIndex = null;
 let bonusDraw = 0;
 let isPlacingCard = false;
 let confirmedTurn = false;
-
-// Track if alignment is in progress to prevent listener conflicts
 let alignmentInProgress = false;
+
+// =====================
+// DRAG & DROP STATE
+// =====================
+let dragData = null; // { index, isSpecial, cardName }
+let dragGhostEl = null; // Custom ghost that follows cursor
+let isDragging = false;
 
 // =====================
 // UTILITY FUNCTIONS
@@ -791,12 +876,9 @@ function shuffle(deck) {
     }
 }
 function isAttack(card) { return card === "Attack"; }
-
-// Check if a card belongs to the action deck (not a special role card)
 function isFromActionDeck(cardName) {
     return cardName && !cardName.includes("Sentinel") && !cardName.includes("Initiator") && !cardName.includes("Controller");
 }
-
 function isCompatible(card, agentName) {
     if (!card || isAttack(card)) return false;
     return agentUtilities[agentName] && agentUtilities[agentName].includes(card.split(" (")[0]);
@@ -838,18 +920,15 @@ function isTurnValid() {
 // DISCARD & RESHUFFLE SYSTEM
 // =====================
 function discardHand() {
-    // Move all remaining hand cards to discard deck
     discardDeck.push(...hand);
     hand = [];
 }
 
 function discardPlacedActionCards() {
-    // Move placed cards that came from the action deck to discard
     for (let i = 0; i < 3; i++) {
         if (placedCards[i] && isFromActionDeck(placedCards[i].card)) {
             discardDeck.push(placedCards[i].card);
         }
-        // Special cards (Deflect, Block, Draw2) are NOT recycled
     }
 }
 
@@ -924,7 +1003,6 @@ function autoAlignAgents() {
         }
     }
 
-    // Clear placed cards regardless
     placedCards = [null, null, null];
     enemyPlacedCards = [null, null, null];
 
@@ -1227,6 +1305,233 @@ function startGameLocal() {
 }
 
 // =====================
+// DRAG & DROP SYSTEM
+// =====================
+
+// Build a custom ghost element that follows the cursor
+function createDragGhost(cardName, sourceEl) {
+    const rect = sourceEl.getBoundingClientRect();
+    const ghost = document.createElement("div");
+    ghost.className = "drag-ghost-preview";
+    ghost.style.width = rect.width + "px";
+    ghost.style.height = rect.height + "px";
+    ghost.style.left = rect.left + "px";
+    ghost.style.top = rect.top + "px";
+
+    if (cardImages[cardName]) {
+        const img = document.createElement("img");
+        img.src = cardImages[cardName];
+        ghost.appendChild(img);
+    } else {
+        ghost.innerText = cardName;
+        ghost.style.display = "flex";
+        ghost.style.alignItems = "center";
+        ghost.style.justifyContent = "center";
+        ghost.style.fontSize = "14px";
+        ghost.style.fontWeight = "bold";
+        ghost.style.background = "#222";
+        ghost.style.borderRadius = "10px";
+    }
+
+    document.body.appendChild(ghost);
+    return ghost;
+}
+
+// Highlight or clear drop zone states on all place slots
+function setDropZoneStates(validIndices, hoverIndex) {
+    const lanes = document.getElementById("lanes").children;
+    for (let i = 0; i < 3; i++) {
+        const slot = lanes[i].children[2];
+        slot.classList.remove("drag-valid", "drag-invalid", "drag-hover");
+
+        if (placedCards[i]) {
+            // Already occupied — always invalid
+            slot.classList.add("drag-invalid");
+        } else if (validIndices.includes(i)) {
+            if (i === hoverIndex) {
+                slot.classList.add("drag-hover");
+            } else {
+                slot.classList.add("drag-valid");
+            }
+        } else {
+            slot.classList.add("drag-invalid");
+        }
+    }
+}
+
+function clearDropZoneStates() {
+    const lanes = document.getElementById("lanes").children;
+    for (let i = 0; i < 3; i++) {
+        const slot = lanes[i].children[2];
+        slot.classList.remove("drag-valid", "drag-invalid", "drag-hover", "drop-ready");
+    }
+}
+
+// Get which lane indices are valid drop targets for a card
+function getValidDropTargets() {
+    let valid = [];
+    for (let i = 0; i < 3; i++) {
+        if (placedCards[i]) continue;
+        if (playerAgents[i] && playerAgents[i].hp > 0 && enemyAgents[i] && enemyAgents[i].hp > 0) {
+            valid.push(i);
+        }
+    }
+    return valid;
+}
+
+// Figure out which lane a point (x,y) is over
+function getLaneIndexAtPoint(x, y) {
+    const lanes = document.getElementById("lanes").children;
+    for (let i = 0; i < 3; i++) {
+        const slot = lanes[i].children[2]; // The place-slot
+        const rect = slot.getBoundingClientRect();
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Attach drag events to a card element
+function attachDragEvents(cardEl, cardIndex, isSpecial) {
+    let startX, startY, moved;
+
+    cardEl.addEventListener("mousedown", onPointerDown);
+    cardEl.addEventListener("touchstart", onPointerDown, { passive: false });
+
+    function onPointerDown(e) {
+        if (confirmedTurn || isPlacingCard) return;
+        if (e.type === "touchstart" && e.touches.length > 1) return;
+
+        const touch = e.touches ? e.touches[0] : e;
+        startX = touch.clientX;
+        startY = touch.clientY;
+        moved = false;
+
+        // We listen on document to detect drag threshold
+        document.addEventListener("mousemove", onPointerMove);
+        document.addEventListener("mouseup", onPointerUp);
+        document.addEventListener("touchmove", onPointerMove, { passive: false });
+        document.addEventListener("touchend", onPointerUp);
+    }
+
+    function onPointerMove(e) {
+        if (confirmedTurn || isPlacingCard) return;
+        e.preventDefault();
+
+        const touch = e.touches ? e.touches[0] : e;
+        const dx = touch.clientX - startX;
+        const dy = touch.clientY - startY;
+
+        // Threshold to distinguish click from drag
+        if (!isDragging && Math.abs(dx) + Math.abs(dy) > 8) {
+            startDrag(touch.clientX, touch.clientY);
+        }
+
+        if (isDragging) {
+            moveDrag(touch.clientX, touch.clientY);
+        }
+    }
+
+    function onPointerUp(e) {
+        document.removeEventListener("mousemove", onPointerMove);
+        document.removeEventListener("mouseup", onPointerUp);
+        document.removeEventListener("touchmove", onPointerMove);
+        document.removeEventListener("touchend", onPointerUp);
+
+        if (isDragging) {
+            const touch = e.changedTouches ? e.changedTouches[0] : e;
+            endDrag(touch.clientX, touch.clientY);
+            moved = true; // Prevent click
+        }
+    }
+
+    function startDrag(x, y) {
+        isDragging = true;
+        moved = true;
+
+        const cardName = isSpecial ? specialHand[cardIndex] : hand[cardIndex];
+        if (!cardName) { isDragging = false; return; }
+
+        dragData = { index: cardIndex, isSpecial, cardName };
+
+        // Create custom ghost
+        dragGhostEl = createDragGhost(cardName, cardEl);
+
+        // Dim the source card
+        cardEl.classList.add("dragging");
+
+        // Highlight valid zones
+        const validTargets = getValidDropTargets();
+        setDropZoneStates(validTargets, -1);
+
+        // Play subtle sfx
+        const hs = sfxHover.cloneNode();
+        hs.volume = sfxHover.volume * 0.3;
+        hs.play().catch(()=>{});
+    }
+
+    function moveDrag(x, y) {
+        if (!dragGhostEl) return;
+
+        // Position ghost centered on cursor
+        const gw = dragGhostEl.offsetWidth;
+        const gh = dragGhostEl.offsetHeight;
+        dragGhostEl.style.left = (x - gw / 2) + "px";
+        dragGhostEl.style.top = (y - gh / 2) + "px";
+
+        // Update hover state on drop zones
+        const hoverLane = getLaneIndexAtPoint(x, y);
+        const validTargets = getValidDropTargets();
+        setDropZoneStates(validTargets, hoverLane);
+    }
+
+    function endDrag(x, y) {
+        if (!dragData) { isDragging = false; return; }
+
+        // Remove ghost
+        if (dragGhostEl) {
+            dragGhostEl.remove();
+            dragGhostEl = null;
+        }
+
+        // Remove dragging style from source
+        cardEl.classList.remove("dragging");
+
+        // Clear drop zone highlights
+        clearDropZoneStates();
+
+        // Check if dropped on a valid lane
+        const dropLane = getLaneIndexAtPoint(x, y);
+        const validTargets = getValidDropTargets();
+
+        if (dropLane >= 0 && validTargets.includes(dropLane)) {
+            // Successful drop — use the existing placeCard logic
+            // Temporarily set selected indices so placeCard uses them
+            if (dragData.isSpecial) {
+                selectedSpecialIndex = dragData.index;
+                selectedCardIndex = null;
+            } else {
+                selectedCardIndex = dragData.index;
+                selectedSpecialIndex = null;
+            }
+            placeCard(dropLane);
+        }
+
+        dragData = null;
+        isDragging = false;
+    }
+
+    // We need to prevent the click handler from firing after a drag
+    // We do this by checking `moved` in the click handler
+    const origClick = cardEl.onclick;
+    cardEl.onclick = function(e) {
+        if (moved) { moved = false; return; }
+        if (origClick) origClick.call(this, e);
+    };
+}
+
+// =====================
 // ACTIONS
 // =====================
 window.selectAgentSwap = function(i) {
@@ -1292,45 +1597,69 @@ window.placeCard = function(i) {
         cardEl = document.getElementById("hand").children[removalIndex];
         card = hand[removalIndex];
     }
-    if (!cardEl) { isPlacingCard = false; return; }
+    if (!cardEl || !card) { isPlacingCard = false; return; }
 
-    // Draw 2 Logic
+    // Draw 2 Logic — instant, no fly animation needed
     if (card === "Draw2 (Initiator)") {
         bonusDraw += 2;
         sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
         placedCards[i] = { card: card };
         if (wasSpecial) specialHand.splice(removalIndex, 1);
         else hand.splice(removalIndex, 1);
+        selectedCardIndex = null;
+        selectedSpecialIndex = null;
         updateHandUI(false); updateSpecialHandUI(); updateBoardUI();
         isPlacingCard = false;
         return;
     }
 
-    // Animation
-    const rectStart = cardEl.getBoundingClientRect();
-    const rectEnd = targetSlot.getBoundingClientRect();
-    const flyingCard = cardEl.cloneNode(true);
-    flyingCard.classList.add("card-fly");
-    cardEl.style.visibility = "hidden";
-    flyingCard.style.left = rectStart.left + "px";
-    flyingCard.style.top = rectStart.top + "px";
-    flyingCard.style.width = rectStart.width + "px";
-    flyingCard.style.height = rectStart.height + "px";
-    document.body.appendChild(flyingCard);
-    flyingCard.offsetWidth;
-    flyingCard.style.left = rectEnd.left + "px";
-    flyingCard.style.top = rectEnd.top + "px";
+    // Fly animation (skip if this was a drag — ghost already showed the movement)
+    const wasDragDrop = isDragging === false && dragData === null && moved !== true;
+    // Actually let's check differently: if the cardEl is still visible (not dimmed by dragging), do animation
+    const cardElWasDragging = cardEl.classList.contains("dragging");
 
-    setTimeout(() => {
+    if (!cardElWasDragging) {
+        // Normal click-to-place: do the fly animation
+        const rectStart = cardEl.getBoundingClientRect();
+        const rectEnd = targetSlot.getBoundingClientRect();
+        const flyingCard = cardEl.cloneNode(true);
+        flyingCard.classList.add("card-fly");
+        flyingCard.classList.remove("card", "dragging");
+        cardEl.style.visibility = "hidden";
+        flyingCard.style.left = rectStart.left + "px";
+        flyingCard.style.top = rectStart.top + "px";
+        flyingCard.style.width = rectStart.width + "px";
+        flyingCard.style.height = rectStart.height + "px";
+        document.body.appendChild(flyingCard);
+        flyingCard.offsetWidth;
+        flyingCard.style.left = rectEnd.left + "px";
+        flyingCard.style.top = rectEnd.top + "px";
+
+        setTimeout(() => {
+            sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
+            placedCards[i] = { card: card };
+            if (wasSpecial) specialHand.splice(removalIndex, 1);
+            else hand.splice(removalIndex, 1);
+            
+            flyingCard.remove();
+            selectedCardIndex = null;
+            selectedSpecialIndex = null;
+            updateHandUI(false); updateSpecialHandUI(); updateBoardUI();
+            isPlacingCard = false;
+        }, 400);
+    } else {
+        // Was a drag-and-drop: card is already "at" the slot visually, just finalize
+        cardEl.classList.remove("dragging");
         sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
         placedCards[i] = { card: card };
         if (wasSpecial) specialHand.splice(removalIndex, 1);
         else hand.splice(removalIndex, 1);
         
-        flyingCard.remove();
+        selectedCardIndex = null;
+        selectedSpecialIndex = null;
         updateHandUI(false); updateSpecialHandUI(); updateBoardUI();
         isPlacingCard = false;
-    }, 400);
+    }
 }
 
 window.confirmTurn = function() {
@@ -1363,17 +1692,13 @@ window.confirmTurn = function() {
 async function resolveMultiplayerTurn() {
     if (gameOver) return;
 
-    // 1. Reveal enemy cards
     revealEnemyCards();
     await new Promise(r => setTimeout(r, 1500)); 
 
-    // 2. Resolve combat
     resolveCombat();
     
-    // 3. Check for win/loss
     checkWin();
     
-    // 4. Update UI to show deaths
     updateAgentsUI();
     updateEnemyUI();
 
@@ -1382,32 +1707,20 @@ async function resolveMultiplayerTurn() {
         fadeOutActionCards();
         await new Promise(r => setTimeout(r, 400));
         
-        // 5. Auto-align agents
         await autoAlignAgents();
         
-        // 6. DISCARD PHASE: discard placed action deck cards
         discardPlacedActionCards();
-        
-        // 7. DISCARD PHASE: discard all remaining hand cards
         discardHand();
-        
-        // 8. Check if action deck needs reshuffling from discard
         checkReshuffle();
-        
-        // 9. Draw fresh cards for next turn
         drawCards();
-        
-        // 10. Update deck info display
         updateDeckInfo();
         
-        // 11. Reset turn state
         confirmedTurn = false;
         document.getElementById("confirm-btn").disabled = false;
         document.getElementById("confirm-btn").innerText = "Confirm Turn";
         updateBoardUI();
         updateHandUI(false);
 
-        // 12. Sync new state to database
         const updates = {};
         updates[`${myId}/confirmed`] = false;
         updates[`${myId}/placed`] = [null,null,null];
@@ -1446,17 +1759,15 @@ function generateSpecialHand() {
 }
 
 function drawCards() {
-    // Always draw exactly 3 + bonusDraw fresh cards
     let drawCount = 3 + bonusDraw;
     for (let i = 0; i < drawCount; i++) {
         if (actionDeck.length === 0) {
-            // Emergency reshuffle if deck runs out mid-draw
             if (discardDeck.length > 0) {
                 actionDeck.push(...discardDeck);
                 discardDeck = [];
                 shuffle(actionDeck);
                 showReshuffleNotification();
-            } else break; // Truly no cards left
+            } else break;
         }
         hand.push(actionDeck.pop());
     }
@@ -1475,7 +1786,7 @@ function createBoard() {
         lane.innerHTML = `
             <div class="slot agent"></div>
             <div class="slot enemy-slot">?</div>
-            <div class="slot place-slot" onclick="placeCard(${i})">+</div>
+            <div class="slot place-slot" data-lane="${i}">+</div>
             <div class="slot agent" onclick="selectAgentSwap(${i})"></div>
         `;
         lanesDiv.appendChild(lane);
@@ -1487,6 +1798,8 @@ function updateAgentsUI() {
     for (let i = 0; i < 3; i++) {
         let a = playerAgents[i];
         let div = lanes[i].children[3];
+        // Preserve onclick
+        let existingOnclick = div.getAttribute("onclick");
         div.innerHTML = "";
         if (!a || a.hp === 0) {
             if (justDiedPlayer[i]) {
@@ -1526,6 +1839,7 @@ function updateHandUI(animate = false) {
     hand.forEach((c, i) => {
         let d = document.createElement("div");
         d.addEventListener("mouseenter", () => {
+            if (isDragging) return;
             const hoverClone = sfxHover.cloneNode();
             hoverClone.volume = sfxHover.volume;
             hoverClone.play().catch(()=>{});
@@ -1537,13 +1851,21 @@ function updateHandUI(animate = false) {
             d.appendChild(img);
         } else d.innerText = c;
         if (animate) setTimeout(() => d.classList.add("deal"), i * 150);
+
+        // Click selection (kept from original)
         d.onclick = () => {
             if (confirmedTurn) return;
             selectedCardIndex = i;
             selectedSpecialIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
             d.classList.add("selected");
+            // Also pulse valid drop zones to hint
+            pulseValidDropZones();
         };
+
+        // Attach drag & drop
+        attachDragEvents(d, i, false);
+
         handDiv.appendChild(d);
     });
 }
@@ -1565,9 +1887,35 @@ function updateSpecialHandUI() {
             selectedCardIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
             d.classList.add("selected");
+            pulseValidDropZones();
         };
+
+        // Attach drag & drop
+        attachDragEvents(d, i, true);
+
         div.appendChild(d);
     });
+}
+
+// Briefly pulse valid drop zones when a card is clicked (click-to-place hint)
+function pulseValidDropZones() {
+    const lanes = document.getElementById("lanes").children;
+    const validTargets = getValidDropTargets();
+    for (let i = 0; i < 3; i++) {
+        const slot = lanes[i].children[2];
+        slot.classList.remove("drop-ready");
+        if (validTargets.includes(i) && !placedCards[i]) {
+            // Force reflow to restart animation
+            void slot.offsetWidth;
+            slot.classList.add("drop-ready");
+        }
+    }
+    // Remove pulse after 1.5s
+    setTimeout(() => {
+        for (let i = 0; i < 3; i++) {
+            lanes[i].children[2].classList.remove("drop-ready");
+        }
+    }, 1500);
 }
 
 function updateBoardUI() {
@@ -1576,7 +1924,7 @@ function updateBoardUI() {
         let c = placedCards[i];
         let slot = lanes[i].children[2];
         slot.innerHTML = "";
-        slot.classList.remove("place-slot");
+        slot.classList.remove("place-slot", "drag-valid", "drag-invalid", "drag-hover", "drop-ready");
         
         slot.onclick = () => {
             if (confirmedTurn) return;
@@ -1594,6 +1942,7 @@ function updateBoardUI() {
                     let cards = document.querySelectorAll(isSpecial ? "#special-hand .card" : "#hand .card");
                     let idx = isSpecial ? selectedSpecialIndex : selectedCardIndex;
                     if(cards[idx]) cards[idx].classList.add("selected");
+                    pulseValidDropZones();
                 }, 0);
                 return;
             }
@@ -1653,7 +2002,7 @@ function fadeOutActionCards() {
 }
 
 // =====================
-// COMBAT LOGIC (FIXED DEFLECT)
+// COMBAT LOGIC
 // =====================
 function resolveCombat() {
     let lanes = document.getElementById("lanes").children;
@@ -1670,13 +2019,10 @@ function resolveCombat() {
         let enemySlot = lanes[j].children[0];
         let playerSlot = lanes[i].children[3];
 
-        // =====================
-        // PLAYER ATTACK SECTION
-        // =====================
+        // PLAYER ATTACK
         if (pCard && pA.hp > 0 && eA.hp > 0 && isAttack(pCard)) {
             sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
 
-            // DEFLECT CHECK: Enemy has Deflect — bounce damage back to player
             if (eCard === "Deflect (Controller)") {
                 playerSlot.classList.add("hit");
                 setTimeout(() => playerSlot.classList.remove("hit"), 300);
@@ -1688,16 +2034,13 @@ function resolveCombat() {
                     sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
                     triggerDeathAnimation(playerSlot);
                 }
-                continue; // Skip to next fight
-            }
-
-            // BLOCK CHECK: Enemy has BlockAttack — attack does nothing
-            if (eCard === "BlockAttack (Sentinel)") {
-                console.log("Attack Blocked by Sentinel");
                 continue;
             }
 
-            // Enemy has a compatible utility card — takes 99 damage (100→1)
+            if (eCard === "BlockAttack (Sentinel)") {
+                continue;
+            }
+
             if (isCompatible(eCard, eA.name)) {
                 enemySlot.classList.add("hit");
                 setTimeout(() => enemySlot.classList.remove("hit"), 300);
@@ -1710,7 +2053,6 @@ function resolveCombat() {
                 continue;
             }
 
-            // Enemy has no card or incompatible utility — full kill
             enemySlot.classList.add("hit");
             setTimeout(() => enemySlot.classList.remove("hit"), 300);
             eA.hp = 0;
@@ -1719,13 +2061,10 @@ function resolveCombat() {
             triggerDeathAnimation(enemySlot);
         }
 
-        // =====================
-        // ENEMY ATTACK SECTION
-        // =====================
+        // ENEMY ATTACK
         if (eCard && eA.hp > 0 && pA.hp > 0 && isAttack(eCard)) {
             sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
 
-            // DEFLECT CHECK: Player has Deflect — bounce damage back to enemy
             if (pCard === "Deflect (Controller)") {
                 enemySlot.classList.add("hit");
                 setTimeout(() => enemySlot.classList.remove("hit"), 300);
@@ -1740,13 +2079,10 @@ function resolveCombat() {
                 continue;
             }
 
-            // BLOCK CHECK: Player has BlockAttack — attack does nothing
             if (pCard === "BlockAttack (Sentinel)") {
-                console.log("Attack Blocked by Sentinel");
                 continue;
             }
 
-            // Player has a compatible utility card — takes 99 damage (100→1)
             if (isCompatible(pCard, pA.name)) {
                 playerSlot.classList.add("hit");
                 setTimeout(() => playerSlot.classList.remove("hit"), 300);
@@ -1759,7 +2095,6 @@ function resolveCombat() {
                 continue;
             }
 
-            // Player has no card or incompatible utility — full kill
             playerSlot.classList.add("hit");
             setTimeout(() => playerSlot.classList.remove("hit"), 300);
             pA.hp = 0;
@@ -1805,6 +2140,15 @@ function checkWin() {
         if(isHost) remove(roomRef);
     }
 }
+
+// =====================
+// CLEANUP ON PAGE UNLOAD
+// =====================
+window.addEventListener("beforeunload", () => {
+    if (roomRef && isHost) {
+        remove(roomRef).catch(()=>{});
+    }
+});
 
 // =====================
 // INIT
