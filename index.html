@@ -47,37 +47,15 @@ transition: all 0.5s ease;
 }
 .board-wrapper {
     display: flex;
-    flex-direction: column;
+    justify-content: center;
     align-items: center;
-}
-
-/* PLAYER NAME TAGS ON BOARD */
-.player-name-tag {
-    font-size: 15px;
-    font-weight: bold;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    padding: 5px 18px;
-    border-radius: 8px;
-    margin: 6px 0;
-    text-shadow: 0 0 6px currentColor;
-}
-.player-name-tag.enemy-tag {
-    color: #ff4655;
-    border: 1px solid rgba(255,70,85,0.4);
-    background: rgba(255,70,85,0.08);
-}
-.player-name-tag.my-tag {
-    color: #00ffcc;
-    border: 1px solid rgba(0,255,204,0.4);
-    background: rgba(0,255,204,0.08);
 }
 
 /* ROW + LANES */
 .row {
     display: flex;
     justify-content: center;
-    margin: 0px;
+    margin: 20px;
 }
 
 .lane {
@@ -515,12 +493,6 @@ transition: all 0.4s ease;
     color: white;
     width: 85%;
     margin: 10px 0;
-    box-sizing: border-box;
-}
-.lobby-input:focus {
-    outline: none;
-    border-color: #00ffcc;
-    box-shadow: 0 0 8px rgba(0,255,204,0.3);
 }
 .lobby-btn {
     padding: 12px 30px;
@@ -628,155 +600,6 @@ transition: all 0.4s ease;
     border-radius: 10px;
 }
 
-/* ===================== */
-/* CHATBOX STYLES        */
-/* ===================== */
-.chatbox {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: 280px;
-    max-height: 360px;
-    background: rgba(0,0,0,0.85);
-    border: 1px solid rgba(255,255,255,0.15);
-    border-radius: 12px;
-    display: flex;
-    flex-direction: column;
-    z-index: 600;
-    overflow: hidden;
-    backdrop-filter: blur(8px);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-}
-
-.chatbox.collapsed .chat-body,
-.chatbox.collapsed .chat-input-row {
-    display: none;
-}
-
-.chatbox.collapsed {
-    max-height: none;
-    width: auto;
-}
-
-.chat-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    background: rgba(255,70,85,0.15);
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-    cursor: pointer;
-    user-select: none;
-    flex-shrink: 0;
-}
-
-.chat-header-title {
-    font-size: 13px;
-    font-weight: bold;
-    color: #ddd;
-    letter-spacing: 0.5px;
-}
-
-.chat-toggle-icon {
-    font-size: 16px;
-    color: #aaa;
-    transition: transform 0.3s ease;
-}
-.chatbox.collapsed .chat-toggle-icon {
-    transform: rotate(180deg);
-}
-
-.chat-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-height: 160px;
-    max-height: 260px;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.15) transparent;
-}
-.chat-body::-webkit-scrollbar { width: 5px; }
-.chat-body::-webkit-scrollbar-track { background: transparent; }
-.chat-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 10px; }
-
-.chat-msg {
-    font-size: 12px;
-    line-height: 1.4;
-    padding: 5px 8px;
-    border-radius: 8px;
-    max-width: 95%;
-    word-wrap: break-word;
-    animation: chatMsgIn 0.25s ease;
-}
-
-@keyframes chatMsgIn {
-    0% { opacity: 0; transform: translateY(8px); }
-    100% { opacity: 1; transform: translateY(0); }
-}
-
-.chat-msg.me {
-    align-self: flex-end;
-    background: rgba(0,255,204,0.12);
-    border: 1px solid rgba(0,255,204,0.2);
-    color: #c0fff0;
-}
-
-.chat-msg.them {
-    align-self: flex-start;
-    background: rgba(255,70,85,0.1);
-    border: 1px solid rgba(255,70,85,0.15);
-    color: #ffc0c6;
-}
-
-.chat-msg.system {
-    align-self: center;
-    background: none;
-    border: none;
-    color: #777;
-    font-style: italic;
-    font-size: 11px;
-    padding: 2px 0;
-}
-
-.chat-msg .msg-sender {
-    font-weight: bold;
-    font-size: 11px;
-    display: block;
-    margin-bottom: 2px;
-    opacity: 0.7;
-}
-
-.chat-input-row {
-    display: flex;
-    border-top: 1px solid rgba(255,255,255,0.1);
-    flex-shrink: 0;
-}
-
-.chat-input-row input {
-    flex: 1;
-    padding: 8px 10px;
-    background: rgba(255,255,255,0.06);
-    border: none;
-    color: white;
-    font-size: 12px;
-    outline: none;
-}
-.chat-input-row input::placeholder { color: #555; }
-
-.chat-input-row button {
-    padding: 8px 12px;
-    background: #ff4655;
-    border: none;
-    color: white;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-.chat-input-row button:hover { background: #ff6b7a; }
-
 /* TOUCH DEVICE STYLING */
 @media (hover: none) {
     .card:hover {
@@ -789,20 +612,6 @@ transition: all 0.4s ease;
     }
     .place-slot:hover {
         color: rgba(255,255,255,0.25);
-    }
-}
-
-/* Small screen adjustments */
-@media (max-width: 700px) {
-    .chatbox {
-        width: 220px;
-        max-height: 280px;
-        bottom: 10px;
-        right: 10px;
-    }
-    .chat-body {
-        min-height: 120px;
-        max-height: 180px;
     }
 }
 </style>
@@ -844,8 +653,6 @@ transition: all 0.4s ease;
         <div id="lobby-menu" class="lobby-box">
             <div id="status-text">Select 3 Agents to Play</div>
             <br>
-            <input type="text" id="player-name-input" class="lobby-input" placeholder="Enter Your Name" maxlength="16">
-            <br>
             <button id="create-btn" class="lobby-btn" onclick="createRoom()" disabled>Create Room</button>
             <br><br>
             <input type="text" id="join-code-input" class="lobby-input" placeholder="Enter Room Code">
@@ -873,29 +680,12 @@ transition: all 0.4s ease;
     </div>
 </div>
 
-<!-- CHATBOX (hidden until game starts) -->
-<div class="chatbox collapsed" id="chatbox" style="display:none;">
-    <div class="chat-header" onclick="toggleChat()">
-        <span class="chat-header-title">Chat</span>
-        <span class="chat-toggle-icon">▼</span>
-    </div>
-    <div class="chat-body" id="chat-body"></div>
-    <div class="chat-input-row">
-        <input type="text" id="chat-input" placeholder="Type a message..." maxlength="120" autocomplete="off">
-        <button onclick="sendChat()">Send</button>
-    </div>
-</div>
-
 <!-- GAME AREA -->
 <div id="game" style="display:none;">
     <div class="game-area">
         <div id="result"></div>
         <div class="board-wrapper">
-            <!-- Enemy name tag -->
-            <div class="player-name-tag enemy-tag" id="enemy-name-tag">Opponent</div>
             <div class="row" id="lanes"></div>
-            <!-- Player name tag -->
-            <div class="player-name-tag my-tag" id="my-name-tag">You</div>
         </div>
         <div class="controls">
             <button class="confirm-btn" id="confirm-btn" onclick="confirmTurn()">Confirm Turn</button>
@@ -908,7 +698,7 @@ transition: all 0.4s ease;
 <!-- FIREBASE MODULE SCRIPT -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, set, get, onValue, update, push, remove, child, off } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, update, push, remove, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyC3KdYnUGBZa-9Ja2pC8aWP-90PnJAhd0U",
@@ -924,11 +714,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 let roomRef = null;
-let chatRef = null;
 let myId = null;
 let isHost = false;
-let myName = "Player";
-let enemyName = "Opponent";
 
 // =====================
 // SOUND & ASSETS
@@ -1075,13 +862,9 @@ let alignmentInProgress = false;
 // =====================
 // DRAG & DROP STATE
 // =====================
-let dragData = null;
-let dragGhostEl = null;
+let dragData = null; // { index, isSpecial, cardName }
+let dragGhostEl = null; // Custom ghost that follows cursor
 let isDragging = false;
-
-// Chat state
-let chatUnsubscribe = null;
-let lastChatKey = null;
 
 // =====================
 // UTILITY FUNCTIONS
@@ -1120,16 +903,16 @@ function isValidSwap(a, b) {
     return true;
 }
 function canPlaceCard(i) {
-    const { playerAlive, enemyAlive } = getAliveCounts();
+    const { playerAlive, enemyAlive, p, e } = getAliveCounts();
     if (!playerAlive[i]) return false;
     if (!enemyAlive[i]) return false;
     return true;
 }
 function isTurnValid() {
-    const { playerAlive, enemyAlive } = getAliveCounts();
-    for (let i = 0; i < 3; i++) {
-        if (enemyAlive[i] && !placedCards[i]) return false;
-    }
+    const { playerAlive, enemyAlive, p, e } = getAliveCounts();
+    if (p === 1 && e === 1) { for (let i = 0; i < 3; i++) if (enemyAlive[i] && !placedCards[i]) return false; }
+    if (p === 2 && e === 2) { for (let i = 0; i < 3; i++) if (enemyAlive[i] && !placedCards[i]) return false; }
+    if (p === 2 && e === 1) { for (let i = 0; i < 3; i++) if (enemyAlive[i] && !placedCards[i]) return false; }
     return true;
 }
 
@@ -1227,6 +1010,8 @@ function autoAlignAgents() {
 
     alignmentInProgress = true;
 
+    let lanes = document.getElementById("lanes").children;
+
     playerAgents.forEach((agent, oldIdx) => {
         if (agent && agent.hp > 0) {
             let newIdx = alivePlayer.indexOf(agent);
@@ -1304,132 +1089,10 @@ function selectAgent(agent, div) {
         div.classList.add("selected");
     }
     
-    checkLobbyReady();
-}
-
-function checkLobbyReady() {
-    const nameVal = document.getElementById('player-name-input').value.trim();
-    const ready = selectedAgents.length === 3 && nameVal.length > 0;
+    const ready = selectedAgents.length === 3;
     document.getElementById('create-btn').disabled = !ready;
     document.getElementById('join-btn').disabled = !ready;
-    document.getElementById('status-text').innerText = 
-        selectedAgents.length < 3 ? `Select 3 Agents (${selectedAgents.length}/3)` 
-        : !nameVal ? "Enter your name" 
-        : "Ready to Play!";
-}
-
-// Listen to name input
-document.getElementById('player-name-input').addEventListener('input', checkLobbyReady);
-
-// Enter key on join code input
-document.getElementById('join-code-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') joinRoom();
-});
-
-// Enter key on chat input
-document.getElementById('chat-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendChat();
-});
-
-// =====================
-// CHAT SYSTEM
-// =====================
-window.toggleChat = function() {
-    document.getElementById('chatbox').classList.toggle('collapsed');
-};
-
-window.sendChat = function() {
-    const input = document.getElementById('chat-input');
-    const text = input.value.trim();
-    if (!text || !chatRef) return;
-    input.value = '';
-
-    push(chatRef, {
-        sender: myId,
-        name: myName,
-        text: text,
-        ts: Date.now()
-    });
-};
-
-function initChatListener() {
-    if (!chatRef) return;
-
-    onValue(chatRef, (snapshot) => {
-        const data = snapshot.val();
-        const chatBody = document.getElementById('chat-body');
-        if (!data) return;
-
-        // Convert to sorted array
-        const msgs = [];
-        for (const key in data) {
-            msgs.push({ key, ...data[key] });
-        }
-        msgs.sort((a, b) => a.ts - b.ts);
-
-        // Only render new messages (incremental)
-        if (lastChatKey) {
-            const lastIdx = msgs.findIndex(m => m.key === lastChatKey);
-            const newMsgs = lastIdx >= 0 ? msgs.slice(lastIdx + 1) : msgs;
-            newMsgs.forEach(m => appendChatMessage(m));
-        } else {
-            // First load — render all
-            chatBody.innerHTML = '';
-            msgs.forEach(m => appendChatMessage(m, true));
-            chatBody.scrollTop = chatBody.scrollHeight;
-        }
-
-        if (msgs.length > 0) {
-            lastChatKey = msgs[msgs.length - 1].key;
-            chatBody.scrollTop = chatBody.scrollHeight;
-        }
-
-        // Keep max 80 messages in DB to prevent bloat
-        if (msgs.length > 80) {
-            const toRemove = msgs.slice(0, msgs.length - 80);
-            toRemove.forEach(m => {
-                remove(child(chatRef, m.key)).catch(()=>{});
-            });
-        }
-    });
-}
-
-function appendChatMessage(msg, noAnim = false) {
-    const chatBody = document.getElementById('chat-body');
-    const div = document.createElement('div');
-
-    if (msg.sender === 'system') {
-        div.className = 'chat-msg system';
-        div.innerText = msg.text;
-    } else {
-        const isMe = msg.sender === myId;
-        div.className = `chat-msg ${isMe ? 'me' : 'them'}`;
-        if (!noAnim) div.style.animation = 'none';
-        div.innerHTML = `<span class="msg-sender">${escapeHtml(msg.name || 'Unknown')}</span>${escapeHtml(msg.text)}`;
-    }
-
-    chatBody.appendChild(div);
-
-    // Limit DOM messages
-    while (chatBody.children.length > 100) {
-        chatBody.removeChild(chatBody.firstChild);
-    }
-}
-
-function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
-function sendSystemChat(text) {
-    if (!chatRef) return;
-    push(chatRef, {
-        sender: 'system',
-        name: '',
-        text: text,
-        ts: Date.now()
-    });
+    document.getElementById('status-text').innerText = ready ? "Ready to Play!" : "Select 3 Agents";
 }
 
 // =====================
@@ -1446,12 +1109,9 @@ function generateRoomCode(length = 6) {
 
 window.createRoom = async function() {
     if (selectedAgents.length !== 3) return;
-    const nameVal = document.getElementById('player-name-input').value.trim();
-    if (!nameVal) return alert("Enter your name!");
 
     isHost = true;
     myId = "p1";
-    myName = nameVal;
     playerAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
     generateSpecialHand();
     initDecks();
@@ -1470,12 +1130,9 @@ window.createRoom = async function() {
     if (exists) return alert("Couldn't generate a unique code. Try again.");
 
     roomRef = ref(db, 'rooms/' + code);
-    chatRef = child(roomRef, 'chat');
 
     const initialState = {
         status: "waiting",
-        hostName: myName,
-        guestName: "",
         host: { agents: playerAgents },
         guest: { agents: [] },
         turn: 1,
@@ -1491,15 +1148,11 @@ window.createRoom = async function() {
     document.getElementById('waiting-menu').style.display = 'block';
     document.getElementById('room-code-display').innerText = code;
 
-    initChatListener();
-    sendSystemChat(`${myName} created the room.`);
     listenForGameStart();
 };
 
 window.joinRoom = function() {
     if (selectedAgents.length !== 3) return;
-    const nameVal = document.getElementById('player-name-input').value.trim();
-    if (!nameVal) return alert("Enter your name!");
     const roomId = document.getElementById('join-code-input').value.trim();
     if (!roomId) return alert("Enter Room Code!");
 
@@ -1512,10 +1165,7 @@ window.joinRoom = function() {
 
         isHost = false;
         myId = "p2";
-        myName = nameVal;
-        enemyName = data.hostName || "Host";
         roomRef = r;
-        chatRef = child(roomRef, 'chat');
 
         playerAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
         enemyAgents = data.host.agents; 
@@ -1523,7 +1173,6 @@ window.joinRoom = function() {
         initDecks();
 
         const updates = {
-            guestName: myName,
             guest: { agents: playerAgents },
             status: "playing",
             ['gameState/p2']: { agents: playerAgents, placed: [null,null,null], confirmed: false }
@@ -1532,8 +1181,6 @@ window.joinRoom = function() {
         update(r, updates);
 
         startGameLocal();
-        initChatListener();
-        sendSystemChat(`${myName} joined the game!`);
         listenForUpdates();
     }).catch(err => alert("Error: " + err.message));
 };
@@ -1550,9 +1197,7 @@ function listenForGameStart() {
         
         if (isHost && data.status === "playing" && !enemyAgents.length) {
             enemyAgents = data.guest.agents;
-            enemyName = data.guestName || "Guest";
             startGameLocal();
-            sendSystemChat(`${enemyName} joined. Game starts!`);
             listenForUpdates(); 
         }
     });
@@ -1650,11 +1295,6 @@ function startGameLocal() {
     document.getElementById("agent-selection").style.display = "none";
     document.getElementById("game").style.display = "block";
     document.getElementById("deck-info").style.display = "block";
-    document.getElementById("chatbox").style.display = "flex";
-    
-    // Set name tags
-    document.getElementById("my-name-tag").innerText = myName;
-    document.getElementById("enemy-name-tag").innerText = enemyName;
     
     createBoard();
     updateAgentsUI();
@@ -1667,6 +1307,8 @@ function startGameLocal() {
 // =====================
 // DRAG & DROP SYSTEM
 // =====================
+
+// Build a custom ghost element that follows the cursor
 function createDragGhost(cardName, sourceEl) {
     const rect = sourceEl.getBoundingClientRect();
     const ghost = document.createElement("div");
@@ -1695,6 +1337,7 @@ function createDragGhost(cardName, sourceEl) {
     return ghost;
 }
 
+// Highlight or clear drop zone states on all place slots
 function setDropZoneStates(validIndices, hoverIndex) {
     const lanes = document.getElementById("lanes").children;
     for (let i = 0; i < 3; i++) {
@@ -1702,6 +1345,7 @@ function setDropZoneStates(validIndices, hoverIndex) {
         slot.classList.remove("drag-valid", "drag-invalid", "drag-hover");
 
         if (placedCards[i]) {
+            // Already occupied — always invalid
             slot.classList.add("drag-invalid");
         } else if (validIndices.includes(i)) {
             if (i === hoverIndex) {
@@ -1723,6 +1367,7 @@ function clearDropZoneStates() {
     }
 }
 
+// Get which lane indices are valid drop targets for a card
 function getValidDropTargets() {
     let valid = [];
     for (let i = 0; i < 3; i++) {
@@ -1734,10 +1379,11 @@ function getValidDropTargets() {
     return valid;
 }
 
+// Figure out which lane a point (x,y) is over
 function getLaneIndexAtPoint(x, y) {
     const lanes = document.getElementById("lanes").children;
     for (let i = 0; i < 3; i++) {
-        const slot = lanes[i].children[2];
+        const slot = lanes[i].children[2]; // The place-slot
         const rect = slot.getBoundingClientRect();
         if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
             return i;
@@ -1746,6 +1392,7 @@ function getLaneIndexAtPoint(x, y) {
     return -1;
 }
 
+// Attach drag events to a card element
 function attachDragEvents(cardEl, cardIndex, isSpecial) {
     let startX, startY, moved;
 
@@ -1761,6 +1408,7 @@ function attachDragEvents(cardEl, cardIndex, isSpecial) {
         startY = touch.clientY;
         moved = false;
 
+        // We listen on document to detect drag threshold
         document.addEventListener("mousemove", onPointerMove);
         document.addEventListener("mouseup", onPointerUp);
         document.addEventListener("touchmove", onPointerMove, { passive: false });
@@ -1775,6 +1423,7 @@ function attachDragEvents(cardEl, cardIndex, isSpecial) {
         const dx = touch.clientX - startX;
         const dy = touch.clientY - startY;
 
+        // Threshold to distinguish click from drag
         if (!isDragging && Math.abs(dx) + Math.abs(dy) > 8) {
             startDrag(touch.clientX, touch.clientY);
         }
@@ -1793,7 +1442,7 @@ function attachDragEvents(cardEl, cardIndex, isSpecial) {
         if (isDragging) {
             const touch = e.changedTouches ? e.changedTouches[0] : e;
             endDrag(touch.clientX, touch.clientY);
-            moved = true;
+            moved = true; // Prevent click
         }
     }
 
@@ -1805,12 +1454,18 @@ function attachDragEvents(cardEl, cardIndex, isSpecial) {
         if (!cardName) { isDragging = false; return; }
 
         dragData = { index: cardIndex, isSpecial, cardName };
+
+        // Create custom ghost
         dragGhostEl = createDragGhost(cardName, cardEl);
+
+        // Dim the source card
         cardEl.classList.add("dragging");
 
+        // Highlight valid zones
         const validTargets = getValidDropTargets();
         setDropZoneStates(validTargets, -1);
 
+        // Play subtle sfx
         const hs = sfxHover.cloneNode();
         hs.volume = sfxHover.volume * 0.3;
         hs.play().catch(()=>{});
@@ -1819,11 +1474,13 @@ function attachDragEvents(cardEl, cardIndex, isSpecial) {
     function moveDrag(x, y) {
         if (!dragGhostEl) return;
 
+        // Position ghost centered on cursor
         const gw = dragGhostEl.offsetWidth;
         const gh = dragGhostEl.offsetHeight;
         dragGhostEl.style.left = (x - gw / 2) + "px";
         dragGhostEl.style.top = (y - gh / 2) + "px";
 
+        // Update hover state on drop zones
         const hoverLane = getLaneIndexAtPoint(x, y);
         const validTargets = getValidDropTargets();
         setDropZoneStates(validTargets, hoverLane);
@@ -1832,18 +1489,25 @@ function attachDragEvents(cardEl, cardIndex, isSpecial) {
     function endDrag(x, y) {
         if (!dragData) { isDragging = false; return; }
 
+        // Remove ghost
         if (dragGhostEl) {
             dragGhostEl.remove();
             dragGhostEl = null;
         }
 
+        // Remove dragging style from source
         cardEl.classList.remove("dragging");
+
+        // Clear drop zone highlights
         clearDropZoneStates();
 
+        // Check if dropped on a valid lane
         const dropLane = getLaneIndexAtPoint(x, y);
         const validTargets = getValidDropTargets();
 
         if (dropLane >= 0 && validTargets.includes(dropLane)) {
+            // Successful drop — use the existing placeCard logic
+            // Temporarily set selected indices so placeCard uses them
             if (dragData.isSpecial) {
                 selectedSpecialIndex = dragData.index;
                 selectedCardIndex = null;
@@ -1858,6 +1522,8 @@ function attachDragEvents(cardEl, cardIndex, isSpecial) {
         isDragging = false;
     }
 
+    // We need to prevent the click handler from firing after a drag
+    // We do this by checking `moved` in the click handler
     const origClick = cardEl.onclick;
     cardEl.onclick = function(e) {
         if (moved) { moved = false; return; }
@@ -1933,7 +1599,7 @@ window.placeCard = function(i) {
     }
     if (!cardEl || !card) { isPlacingCard = false; return; }
 
-    // Draw 2 Logic — instant
+    // Draw 2 Logic — instant, no fly animation needed
     if (card === "Draw2 (Initiator)") {
         bonusDraw += 2;
         sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
@@ -1947,9 +1613,13 @@ window.placeCard = function(i) {
         return;
     }
 
+    // Fly animation (skip if this was a drag — ghost already showed the movement)
+    const wasDragDrop = isDragging === false && dragData === null && moved !== true;
+    // Actually let's check differently: if the cardEl is still visible (not dimmed by dragging), do animation
     const cardElWasDragging = cardEl.classList.contains("dragging");
 
     if (!cardElWasDragging) {
+        // Normal click-to-place: do the fly animation
         const rectStart = cardEl.getBoundingClientRect();
         const rectEnd = targetSlot.getBoundingClientRect();
         const flyingCard = cardEl.cloneNode(true);
@@ -1978,6 +1648,7 @@ window.placeCard = function(i) {
             isPlacingCard = false;
         }, 400);
     } else {
+        // Was a drag-and-drop: card is already "at" the slot visually, just finalize
         cardEl.classList.remove("dragging");
         sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
         placedCards[i] = { card: card };
@@ -2127,6 +1798,8 @@ function updateAgentsUI() {
     for (let i = 0; i < 3; i++) {
         let a = playerAgents[i];
         let div = lanes[i].children[3];
+        // Preserve onclick
+        let existingOnclick = div.getAttribute("onclick");
         div.innerHTML = "";
         if (!a || a.hp === 0) {
             if (justDiedPlayer[i]) {
@@ -2179,15 +1852,18 @@ function updateHandUI(animate = false) {
         } else d.innerText = c;
         if (animate) setTimeout(() => d.classList.add("deal"), i * 150);
 
+        // Click selection (kept from original)
         d.onclick = () => {
             if (confirmedTurn) return;
             selectedCardIndex = i;
             selectedSpecialIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
             d.classList.add("selected");
+            // Also pulse valid drop zones to hint
             pulseValidDropZones();
         };
 
+        // Attach drag & drop
         attachDragEvents(d, i, false);
 
         handDiv.appendChild(d);
@@ -2214,12 +1890,14 @@ function updateSpecialHandUI() {
             pulseValidDropZones();
         };
 
+        // Attach drag & drop
         attachDragEvents(d, i, true);
 
         div.appendChild(d);
     });
 }
 
+// Briefly pulse valid drop zones when a card is clicked (click-to-place hint)
 function pulseValidDropZones() {
     const lanes = document.getElementById("lanes").children;
     const validTargets = getValidDropTargets();
@@ -2227,10 +1905,12 @@ function pulseValidDropZones() {
         const slot = lanes[i].children[2];
         slot.classList.remove("drop-ready");
         if (validTargets.includes(i) && !placedCards[i]) {
+            // Force reflow to restart animation
             void slot.offsetWidth;
             slot.classList.add("drop-ready");
         }
     }
+    // Remove pulse after 1.5s
     setTimeout(() => {
         for (let i = 0; i < 3; i++) {
             lanes[i].children[2].classList.remove("drop-ready");
@@ -2454,10 +2134,8 @@ function checkWin() {
         gameOver = true;
         if (!playerAlive) {
             resultDiv.innerText = "YOU LOSE"; resultDiv.classList.add("lose");
-            sendSystemChat(`${enemyName} wins the game!`);
         } else {
             resultDiv.innerText = "YOU WIN"; resultDiv.classList.add("win");
-            sendSystemChat(`${myName} wins the game!`);
         }
         if(isHost) remove(roomRef);
     }
