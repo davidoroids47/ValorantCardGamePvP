@@ -1670,6 +1670,11 @@ function resolveCombat() {
         let enemySlot = lanes[j].children[0];
         let playerSlot = lanes[i].children[3];
 
+        // ATTACK VS ATTACK: No effect to either party
+        if (isAttack(pCard) && isAttack(eCard)) {
+            continue;
+        }
+
         // =====================
         // PLAYER ATTACK SECTION
         // =====================
