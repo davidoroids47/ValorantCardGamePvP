@@ -1312,30 +1312,12 @@ window.placeCard = function(i) {
     }
 
     // Animation
-    const rectStart = cardEl.getBoundingClientRect();
-    const rectEnd = targetSlot.getBoundingClientRect();
-    const flyingCard = cardEl.cloneNode(true);
-    flyingCard.classList.add("card-fly");
-    cardEl.style.visibility = "hidden";
-    flyingCard.style.left = rectStart.left + "px";
-    flyingCard.style.top = rectStart.top + "px";
-    flyingCard.style.width = rectStart.width + "px";
-    flyingCard.style.height = rectStart.height + "px";
-    document.body.appendChild(flyingCard);
-    flyingCard.offsetWidth;
-    flyingCard.style.left = rectEnd.left + "px";
-    flyingCard.style.top = rectEnd.top + "px";
-
-    setTimeout(() => {
-        sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
-        placedCards[i] = { card: card };
-        if (wasSpecial) specialHand.splice(removalIndex, 1);
-        else hand.splice(removalIndex, 1);
-        
-        flyingCard.remove();
-        updateHandUI(false); updateSpecialHandUI(); updateBoardUI();
-        isPlacingCard = false;
-    }, 400);
+     sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
+    placedCards[i] = { card: card };
+    if (wasSpecial) specialHand.splice(removalIndex, 1);
+    else hand.splice(removalIndex, 1);
+    updateHandUI(false); updateSpecialHandUI(); updateBoardUI();
+    isPlacingCard = false;
 }
 
 window.confirmTurn = function() {
