@@ -847,21 +847,50 @@ function isTurnValid() {
 }
 
 // =====================
+// TOAST NOTIFICATION SYSTEM (replaces blocking alerts)
+// =====================
+function showToast(msg, color = "#ff4655") {
+    let t = document.createElement("div");
+    t.style.cssText = `
+        position:fixed; bottom:80px; left:50%; transform:translateX(-50%) scale(0.9);
+        background:rgba(0,0,0,0.92); color:${color}; padding:12px 28px; border-radius:12px;
+        font-size:15px; font-weight:bold; z-index:99999; border:1px solid ${color};
+        opacity:0; transition:all 0.3s ease; pointer-events:none;
+        box-shadow: 0 0 20px ${color}44;
+    `;
+    t.innerText = msg;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => {
+        t.style.opacity = "1";
+        t.style.transform = "translateX(-50%) scale(1)";
+    });
+    setTimeout(() => {
+        t.style.opacity = "0";
+        t.style.transform = "translateX(-50%) scale(0.9)";
+        setTimeout(() => t.remove(), 300);
+    }, 1600);
+}
+
+// Clear card selection state and visual highlights
+function clearCardSelection() {
+    selectedCardIndex = null;
+    selectedSpecialIndex = null;
+    document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
+}
+
+// =====================
 // DISCARD & RESHUFFLE SYSTEM
 // =====================
 function discardHand() {
-    // Move all remaining hand cards to discard deck
     discardDeck.push(...hand);
     hand = [];
 }
 
 function discardPlacedActionCards() {
-    // Move placed cards that came from the action deck to discard
     for (let i = 0; i < 3; i++) {
         if (placedCards[i] && isFromActionDeck(placedCards[i].card)) {
             discardDeck.push(placedCards[i].card);
         }
-        // Special cards (Deflect, Block, Draw2) are NOT recycled
     }
 }
 
@@ -936,7 +965,6 @@ function autoAlignAgents() {
         }
     }
 
-    // Clear placed cards regardless
     placedCards = [null, null, null];
     enemyPlacedCards = [null, null, null];
 
@@ -1018,7 +1046,7 @@ function selectAgent(agent, div) {
         selectedAgents = selectedAgents.filter(a => a !== agent);
         div.classList.remove("selected");
     } else {
-        if (selectedAgents.length >= 3) return alert("Already selected 3 agents!");
+        if (selectedAgents.length >= 3) { showToast("Already selected 3 agents!"); return; }
         selectedAgents.push(agent);
         div.classList.add("selected");
     }
@@ -1061,7 +1089,7 @@ window.createRoom = async function() {
         attempts++;
     }
 
-    if (exists) return alert("Couldn't generate a unique code. Try again.");
+    if (exists) { showToast("Couldn't generate code. Try again."); return; }
 
     roomRef = ref(db, 'rooms/' + code);
 
@@ -1088,14 +1116,14 @@ window.createRoom = async function() {
 window.joinRoom = function() {
     if (selectedAgents.length !== 3) return;
     const roomId = document.getElementById('join-code-input').value.trim();
-    if (!roomId) return alert("Enter Room Code!");
+    if (!roomId) { showToast("Enter a Room Code!"); return; }
 
     const r = ref(db, 'rooms/' + roomId);
     
     get(r).then(snapshot => {
-        if (!snapshot.exists()) return alert("Room not found!");
+        if (!snapshot.exists()) { showToast("Room not found!"); return; }
         const data = snapshot.val();
-        if (data.status !== "waiting") return alert("Room full/started.");
+        if (data.status !== "waiting") { showToast("Room full or already started."); return; }
 
         isHost = false;
         myId = "p2";
@@ -1116,12 +1144,12 @@ window.joinRoom = function() {
 
         startGameLocal();
         listenForUpdates();
-    }).catch(err => alert("Error: " + err.message));
+    }).catch(err => showToast("Error: " + err.message));
 };
 
 window.copyCode = function() {
     const code = document.getElementById('room-code-display').innerText;
-    navigator.clipboard.writeText(code).then(() => alert("Code copied!"));
+    navigator.clipboard.writeText(code).then(() => showToast("Code copied!", "#00ffcc"));
 };
 
 function listenForGameStart() {
@@ -1255,7 +1283,7 @@ window.selectAgentSwap = function(i) {
     let a = selectedAgentIndex;
     let b = i;
     if (!isValidSwap(a, b)) {
-        alert("Invalid swap: cannot move agent here due to lane rules.");
+        showToast("Invalid swap — cannot move agent here.");
         lanes[a].children[3].classList.remove("selected");
         selectedAgentIndex = null;
         return;
@@ -1283,54 +1311,47 @@ window.selectAgentSwap = function(i) {
 }
 
 window.placeCard = function(i) {
-    if (isPlacingCard || confirmedTurn) return;
-    if (selectedCardIndex === null && selectedSpecialIndex === null) return;
-    if (playerAgents[i].hp === 0) return alert("Your agent is dead!");
-    if (enemyAgents[i].hp === 0) return alert("No enemy here!");
-    if (!canPlaceCard(i)) return alert("Cannot place here — must face at least one enemy!");
-    if (placedCards[i]) return alert("Slot full!");
+    if (isPlacingCard || confirmedTurn) return false;
+    if (selectedCardIndex === null && selectedSpecialIndex === null) return false;
+
+    // Validate slot — show toast and CLEAR selection so no alert loop
+    if (playerAgents[i].hp === 0) { showToast("Your agent is dead!"); clearCardSelection(); return false; }
+    if (enemyAgents[i].hp === 0) { showToast("No enemy here!"); clearCardSelection(); return false; }
+    if (!canPlaceCard(i)) { showToast("Cannot place here — must face an enemy!"); clearCardSelection(); return false; }
+    if (placedCards[i]) { showToast("Slot already full!"); clearCardSelection(); return false; }
 
     isPlacingCard = true;
     const lanes = document.getElementById("lanes").children;
-    const targetSlot = lanes[i].children[2];
 
-    let card, cardEl;
     let wasSpecial = selectedSpecialIndex !== null;
     let removalIndex = wasSpecial ? selectedSpecialIndex : selectedCardIndex;
+    let card = wasSpecial ? specialHand[removalIndex] : hand[removalIndex];
 
-    if (wasSpecial) {
-        cardEl = document.getElementById("special-hand").children[removalIndex];
-        card = specialHand[removalIndex];
-    } else {
-        cardEl = document.getElementById("hand").children[removalIndex];
-        card = hand[removalIndex];
-    }
-    if (!cardEl) { isPlacingCard = false; return; }
+    if (wasSpecial) specialHand.splice(removalIndex, 1);
+    else hand.splice(removalIndex, 1);
 
     // Draw 2 Logic
     if (card === "Draw2 (Initiator)") {
         bonusDraw += 2;
         sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
         placedCards[i] = { card: card };
-        if (wasSpecial) specialHand.splice(removalIndex, 1);
-        else hand.splice(removalIndex, 1);
+        clearCardSelection();
         updateHandUI(false); updateSpecialHandUI(); updateBoardUI();
         isPlacingCard = false;
-        return;
+        return true;
     }
 
-    // Animation
-     sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
+    sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
     placedCards[i] = { card: card };
-    if (wasSpecial) specialHand.splice(removalIndex, 1);
-    else hand.splice(removalIndex, 1);
+    clearCardSelection();
     updateHandUI(false); updateSpecialHandUI(); updateBoardUI();
     isPlacingCard = false;
-}
+    return true;
+};
 
 window.confirmTurn = function() {
     if (gameOver || confirmedTurn) return;
-    if (!isTurnValid()) return alert("Invalid positioning! You cannot hide in an empty lane.");
+    if (!isTurnValid()) { showToast("Invalid positioning! You cannot hide in an empty lane."); return; }
 
     confirmedTurn = true;
     sfxConfirm.currentTime = 0; sfxConfirm.play().catch(()=>{});
@@ -1338,6 +1359,7 @@ window.confirmTurn = function() {
     document.getElementById("confirm-btn").disabled = true;
     document.getElementById("confirm-btn").innerText = "Locked In!";
 
+    clearCardSelection();
     updateBoardUI();
     updateHandUI(false);
     updateSpecialHandUI();
@@ -1380,19 +1402,19 @@ async function resolveMultiplayerTurn() {
         // 5. Auto-align agents
         await autoAlignAgents();
         
-        // 6. DISCARD PHASE: discard placed action deck cards
+        // 6. Discard placed action deck cards
         discardPlacedActionCards();
         
-        // 7. DISCARD PHASE: discard all remaining hand cards
+        // 7. Discard all remaining hand cards
         discardHand();
         
-        // 8. Check if action deck needs reshuffling from discard
+        // 8. Check if action deck needs reshuffling
         checkReshuffle();
         
         // 9. Draw fresh cards for next turn
         drawCards();
         
-        // 10. Update deck info display
+        // 10. Update deck info
         updateDeckInfo();
         
         // 11. Reset turn state
@@ -1441,17 +1463,15 @@ function generateSpecialHand() {
 }
 
 function drawCards() {
-    // Always draw exactly 3 + bonusDraw fresh cards
     let drawCount = 3 + bonusDraw;
     for (let i = 0; i < drawCount; i++) {
         if (actionDeck.length === 0) {
-            // Emergency reshuffle if deck runs out mid-draw
             if (discardDeck.length > 0) {
                 actionDeck.push(...discardDeck);
                 discardDeck = [];
                 shuffle(actionDeck);
                 showReshuffleNotification();
-            } else break; // Truly no cards left
+            } else break;
         }
         hand.push(actionDeck.pop());
     }
@@ -1470,7 +1490,7 @@ function createBoard() {
         lane.innerHTML = `
             <div class="slot agent"></div>
             <div class="slot enemy-slot">?</div>
-            <div class="slot place-slot" onclick="placeCard(${i})">+</div>
+            <div class="slot place-slot" data-lane="${i}">+</div>
             <div class="slot agent" onclick="selectAgentSwap(${i})"></div>
         `;
         lanesDiv.appendChild(lane);
@@ -1539,7 +1559,7 @@ function updateHandUI(animate = false) {
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
             d.classList.add("selected");
         };
-                d.draggable = true;
+        d.draggable = true;
         d.addEventListener("dragstart", (e) => {
             if (confirmedTurn) { e.preventDefault(); return; }
             selectedCardIndex = i;
@@ -1572,7 +1592,7 @@ function updateSpecialHandUI() {
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
             d.classList.add("selected");
         };
-                d.draggable = true;
+        d.draggable = true;
         d.addEventListener("dragstart", (e) => {
             if (confirmedTurn) { e.preventDefault(); return; }
             selectedSpecialIndex = i;
@@ -1595,10 +1615,12 @@ function updateBoardUI() {
         slot.innerHTML = "";
         slot.classList.remove("place-slot");
         
+        // Click handler: pick up placed card OR place selected card
         slot.onclick = () => {
             if (confirmedTurn) return;
 
             if (placedCards[i]) {
+                // Pick up the card from the slot
                 let picked = placedCards[i];
                 let isSpecial = picked.card.includes("Sentinel") || picked.card.includes("Initiator") || picked.card.includes("Controller");
                 if (isSpecial) { specialHand.push(picked.card); selectedSpecialIndex = specialHand.length - 1; }
@@ -1619,7 +1641,9 @@ function updateBoardUI() {
             if (selectedCardIndex === null && selectedSpecialIndex === null) return;
             placeCard(i);
         };
-                slot.addEventListener("dragover", (e) => {
+
+        // Drag-and-drop handlers
+        slot.addEventListener("dragover", (e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
             slot.style.borderColor = "#00ffcc";
@@ -1638,6 +1662,7 @@ function updateBoardUI() {
             if (selectedCardIndex === null && selectedSpecialIndex === null) return;
             placeCard(i);
         });
+
         if (!c) {
             slot.innerText = "+";
             slot.classList.add("place-slot");
@@ -1689,7 +1714,7 @@ function fadeOutActionCards() {
 }
 
 // =====================
-// COMBAT LOGIC (FIXED DEFLECT)
+// COMBAT LOGIC
 // =====================
 function resolveCombat() {
     let lanes = document.getElementById("lanes").children;
@@ -1706,7 +1731,7 @@ function resolveCombat() {
         let enemySlot = lanes[j].children[0];
         let playerSlot = lanes[i].children[3];
 
-        // ATTACK VS ATTACK: No effect to either party
+        // ATTACK VS ATTACK: No effect
         if (isAttack(pCard) && isAttack(eCard)) {
             continue;
         }
@@ -1717,7 +1742,7 @@ function resolveCombat() {
         if (pCard && pA.hp > 0 && eA.hp > 0 && isAttack(pCard)) {
             sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
 
-            // DEFLECT CHECK: Enemy has Deflect — bounce damage back to player
+            // DEFLECT: bounce back to player
             if (eCard === "Deflect (Controller)") {
                 playerSlot.classList.add("hit");
                 setTimeout(() => playerSlot.classList.remove("hit"), 300);
@@ -1729,16 +1754,15 @@ function resolveCombat() {
                     sfxDeath.currentTime = 0; sfxDeath.play().catch(()=>{});
                     triggerDeathAnimation(playerSlot);
                 }
-                continue; // Skip to next fight
-            }
-
-            // BLOCK CHECK: Enemy has BlockAttack — attack does nothing
-            if (eCard === "BlockAttack (Sentinel)") {
-                console.log("Attack Blocked by Sentinel");
                 continue;
             }
 
-            // Enemy has a compatible utility card — takes 99 damage (100→1)
+            // BLOCK: attack does nothing
+            if (eCard === "BlockAttack (Sentinel)") {
+                continue;
+            }
+
+            // Enemy has compatible utility — 99 damage (100→1)
             if (isCompatible(eCard, eA.name)) {
                 enemySlot.classList.add("hit");
                 setTimeout(() => enemySlot.classList.remove("hit"), 300);
@@ -1751,7 +1775,7 @@ function resolveCombat() {
                 continue;
             }
 
-            // Enemy has no card or incompatible utility — full kill
+            // No card or incompatible — full kill
             enemySlot.classList.add("hit");
             setTimeout(() => enemySlot.classList.remove("hit"), 300);
             eA.hp = 0;
@@ -1766,7 +1790,7 @@ function resolveCombat() {
         if (eCard && eA.hp > 0 && pA.hp > 0 && isAttack(eCard)) {
             sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
 
-            // DEFLECT CHECK: Player has Deflect — bounce damage back to enemy
+            // DEFLECT: bounce back to enemy
             if (pCard === "Deflect (Controller)") {
                 enemySlot.classList.add("hit");
                 setTimeout(() => enemySlot.classList.remove("hit"), 300);
@@ -1781,13 +1805,12 @@ function resolveCombat() {
                 continue;
             }
 
-            // BLOCK CHECK: Player has BlockAttack — attack does nothing
+            // BLOCK: attack does nothing
             if (pCard === "BlockAttack (Sentinel)") {
-                console.log("Attack Blocked by Sentinel");
                 continue;
             }
 
-            // Player has a compatible utility card — takes 99 damage (100→1)
+            // Player has compatible utility — 99 damage
             if (isCompatible(pCard, pA.name)) {
                 playerSlot.classList.add("hit");
                 setTimeout(() => playerSlot.classList.remove("hit"), 300);
@@ -1800,7 +1823,7 @@ function resolveCombat() {
                 continue;
             }
 
-            // Player has no card or incompatible utility — full kill
+            // No card or incompatible — full kill
             playerSlot.classList.add("hit");
             setTimeout(() => playerSlot.classList.remove("hit"), 300);
             pA.hp = 0;
@@ -1843,7 +1866,7 @@ function checkWin() {
         } else {
             resultDiv.innerText = "YOU WIN"; resultDiv.classList.add("win");
         }
-        if(isHost) remove(roomRef);
+        if(isHost && roomRef) remove(roomRef);
     }
 }
 
