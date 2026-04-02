@@ -423,9 +423,7 @@ transition: all 0.4s ease;
     cursor: pointer; font-weight: bold;
 }
 
-/* ===================== */
 /* MULTIPLAYER LOBBY CSS */
-/* ===================== */
 #lobby-ui {
     margin-top: 20px;
     padding: 20px;
@@ -545,6 +543,94 @@ transition: all 0.4s ease;
     margin: 4px auto 0 auto;
     line-height: 1.4;
 }
+
+/* =============================== */
+/* DISCONNECT OVERLAY              */
+/* =============================== */
+#disconnect-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.88);
+    backdrop-filter: blur(8px);
+    z-index: 15000;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 18px;
+}
+#disconnect-overlay.show {
+    display: flex;
+}
+@keyframes disconnectPulse {
+    0%   { transform: translate(-50%, -50%) scale(0.7); opacity: 0; }
+    30%  { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+.disconnect-title {
+    position: absolute;
+    top: 35%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 52px;
+    font-weight: bold;
+    letter-spacing: 4px;
+    color: #ff4444;
+    text-shadow: 0 0 15px #ff4444, 0 0 30px #ff0000, 0 0 60px rgba(255,0,0,0.4);
+    animation: disconnectPulse 0.6s ease forwards;
+    white-space: nowrap;
+}
+.disconnect-subtitle {
+    position: absolute;
+    top: 48%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 18px;
+    color: #ccc;
+    opacity: 0;
+    animation: disconnectPulse 0.5s 0.3s ease forwards;
+}
+.disconnect-countdown {
+    position: absolute;
+    top: 56%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 22px;
+    font-weight: bold;
+    color: #ffaa00;
+    text-shadow: 0 0 8px #ffaa00;
+    opacity: 0;
+    animation: disconnectPulse 0.5s 0.5s ease forwards;
+}
+.disconnect-btn {
+    position: absolute;
+    top: 66%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 14px 40px;
+    font-size: 17px;
+    font-weight: bold;
+    background: #ff4655;
+    border: none;
+    border-radius: 10px;
+    color: white;
+    cursor: pointer;
+    transition: 0.2s;
+    opacity: 0;
+    animation: disconnectPulse 0.5s 0.7s ease forwards;
+}
+.disconnect-btn:hover {
+    background: #ff6b7a;
+    transform: translateX(-50%) scale(1.08);
+}
+@keyframes countdownPulse {
+    0%   { transform: translateX(-50%) scale(1); }
+    50%  { transform: translateX(-50%) scale(1.1); }
+    100% { transform: translateX(-50%) scale(1); }
+}
+.countdown-tick {
+    animation: countdownPulse 0.3s ease;
+}
 </style>
 </head>
 <body>
@@ -570,6 +656,14 @@ transition: all 0.4s ease;
 
 <!-- TURN INDICATOR -->
 <div class="turn-indicator" id="turn-indicator">Waiting...</div>
+
+<!-- DISCONNECT OVERLAY -->
+<div id="disconnect-overlay">
+    <div class="disconnect-title" id="disconnect-title">HOST HAS LEFT</div>
+    <div class="disconnect-subtitle" id="disconnect-subtitle">Your opponent has disconnected from the game.</div>
+    <div class="disconnect-countdown" id="disconnect-countdown">Room will close in 15 seconds...</div>
+    <button class="disconnect-btn" onclick="returnToMenu()">Return to Menu</button>
+</div>
 
 <h1>Valorant Card Game</h1>
 <p class="disclaimer">isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc</p>
@@ -649,6 +743,16 @@ const db = getDatabase(app);
 let roomRef = null;
 let myId = null;
 let isHost = false;
+
+// =====================================================
+// DISCONNECT / PRESENCE STATE
+// =====================================================
+let heartbeatInterval = null;
+let staleCheckInterval = null;
+let opponentLeftDetected = false;
+let cleanupCountdownTimer = null;
+let cleanupSecondsRemaining = 0;
+let unsubscribers = [];
 
 // =====================
 // ORIGINAL SOUND & ASSETS
@@ -790,8 +894,6 @@ let selectedSpecialIndex = null;
 let bonusDraw = 0;
 let isPlacingCard = false;
 let confirmedTurn = false;
-
-// Track if alignment is in progress to prevent listener conflicts
 let alignmentInProgress = false;
 
 // =====================
@@ -804,12 +906,9 @@ function shuffle(deck) {
     }
 }
 function isAttack(card) { return card === "Attack"; }
-
-// Check if a card belongs to the action deck (not a special role card)
 function isFromActionDeck(cardName) {
     return cardName && !cardName.includes("Sentinel") && !cardName.includes("Initiator") && !cardName.includes("Controller");
 }
-
 function isCompatible(card, agentName) {
     if (!card || isAttack(card)) return false;
     return agentUtilities[agentName] && agentUtilities[agentName].includes(card.split(" (")[0]);
@@ -834,7 +933,7 @@ function isValidSwap(a, b) {
     return true;
 }
 function canPlaceCard(i) {
-    const { playerAlive, enemyAlive, p, e } = getAliveCounts();
+    const { playerAlive, enemyAlive } = getAliveCounts();
     if (!playerAlive[i]) return false;
     if (!enemyAlive[i]) return false;
     return true;
@@ -848,7 +947,7 @@ function isTurnValid() {
 }
 
 // =====================
-// TOAST NOTIFICATION SYSTEM (replaces blocking alerts)
+// TOAST NOTIFICATION SYSTEM
 // =====================
 function showToast(msg, color = "#ff4655") {
     let t = document.createElement("div");
@@ -872,11 +971,259 @@ function showToast(msg, color = "#ff4655") {
     }, 1600);
 }
 
-// Clear card selection state and visual highlights
 function clearCardSelection() {
     selectedCardIndex = null;
     selectedSpecialIndex = null;
     document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
+}
+
+// =====================
+// DISCONNECT / PRESENCE SYSTEM
+// =====================
+
+// Write a heartbeat timestamp every 3 seconds so the opponent can detect stale connections fast
+function startHeartbeat() {
+    stopHeartbeat();
+    // Write immediately
+    if (roomRef && myId) {
+        update(child(roomRef, `presence/${myId}`), { online: true, lastSeen: Date.now() }).catch(() => {});
+    }
+    heartbeatInterval = setInterval(() => {
+        if (roomRef && myId && !gameOver && !opponentLeftDetected) {
+            update(child(roomRef, `presence/${myId}`), { online: true, lastSeen: Date.now() }).catch(() => {});
+        }
+    }, 3000);
+}
+
+function stopHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+}
+
+// Monitor the opponent's presence node in real-time + a stale-check poll
+function setupPresenceMonitoring() {
+    if (!roomRef || !myId) return;
+
+    const oppId = myId === "p1" ? "p2" : "p1";
+
+    // Real-time listener: fires when onDisconnect writes { online: false }
+    const unsubPresence = onValue(child(roomRef, `presence/${oppId}`), (snapshot) => {
+        if (gameOver || opponentLeftDetected) return;
+        const data = snapshot.val();
+        if (!data || data.online === false) {
+            opponentLeftDetected = true;
+            onOpponentDisconnected(oppId === "p1" ? "Host" : "Guest");
+        }
+    });
+    unsubscribers.push(unsubPresence);
+
+    // Stale-check: if opponent's lastSeen is older than 10s, they likely dropped without clean disconnect
+    staleCheckInterval = setInterval(() => {
+        if (gameOver || opponentLeftDetected || !roomRef) {
+            if (staleCheckInterval) { clearInterval(staleCheckInterval); staleCheckInterval = null; }
+            return;
+        }
+        get(child(roomRef, `presence/${oppId}`)).then(snapshot => {
+            const data = snapshot.val();
+            if (!data || !data.online || !data.lastSeen) return;
+            if (Date.now() - data.lastSeen > 10000) {
+                if (!opponentLeftDetected) {
+                    opponentLeftDetected = true;
+                    onOpponentDisconnected(oppId === "p1" ? "Host" : "Guest");
+                }
+                if (staleCheckInterval) { clearInterval(staleCheckInterval); staleCheckInterval = null; }
+            }
+        }).catch(() => {
+            if (staleCheckInterval) { clearInterval(staleCheckInterval); staleCheckInterval = null; }
+        });
+    }, 4000);
+}
+
+// Called when the opponent is detected as disconnected
+function onOpponentDisconnected(oppLabel) {
+    stopHeartbeat();
+    if (staleCheckInterval) { clearInterval(staleCheckInterval); staleCheckInterval = null; }
+
+    // Hide turn indicator
+    document.getElementById("turn-indicator").style.display = "none";
+
+    // Show the disconnect overlay
+    showDisconnectOverlay(oppLabel);
+
+    // Start 15-second countdown, then delete the room from Firebase
+    cleanupSecondsRemaining = 15;
+    updateCountdownDisplay(cleanupSecondsRemaining);
+
+    cleanupCountdownTimer = setInterval(() => {
+        cleanupSecondsRemaining--;
+        updateCountdownDisplay(cleanupSecondsRemaining);
+
+        if (cleanupSecondsRemaining <= 0) {
+            clearInterval(cleanupCountdownTimer);
+            cleanupCountdownTimer = null;
+            cleanupRoom();
+        }
+    }, 1000);
+}
+
+function showDisconnectOverlay(label) {
+    document.getElementById("disconnect-title").innerText = `${label.toUpperCase()} HAS LEFT`;
+    document.getElementById("disconnect-subtitle").innerText = "Your opponent has disconnected from the game.";
+    document.getElementById("disconnect-overlay").classList.add("show");
+}
+
+function hideDisconnectOverlay() {
+    document.getElementById("disconnect-overlay").classList.remove("show");
+}
+
+function updateCountdownDisplay(seconds) {
+    const el = document.getElementById("disconnect-countdown");
+    el.innerText = `Room will close in ${seconds} second${seconds !== 1 ? "s" : ""}...`;
+    el.classList.remove("countdown-tick");
+    void el.offsetWidth; // reflow trigger
+    el.classList.add("countdown-tick");
+}
+
+// Delete the room from Firebase and go back to menu
+function cleanupRoom() {
+    if (roomRef) {
+        remove(roomRef).catch(() => {});
+        roomRef = null;
+    }
+    returnToMenu();
+}
+
+// Detach all Firebase listeners
+function detachAllListeners() {
+    unsubscribers.forEach(unsub => {
+        try { unsub(); } catch(e) {}
+    });
+    unsubscribers = [];
+}
+
+// Stop all timers and intervals
+function stopAllMonitoring() {
+    stopHeartbeat();
+    if (staleCheckInterval) { clearInterval(staleCheckInterval); staleCheckInterval = null; }
+    if (cleanupCountdownTimer) { clearInterval(cleanupCountdownTimer); cleanupCountdownTimer = null; }
+}
+
+// Full state reset — return to agent selection screen
+function resetAllState() {
+    stopAllMonitoring();
+    detachAllListeners();
+
+    if (roomRef) {
+        remove(roomRef).catch(() => {});
+        roomRef = null;
+    }
+
+    myId = null;
+    isHost = false;
+    opponentLeftDetected = false;
+    cleanupSecondsRemaining = 0;
+    gameOver = false;
+    confirmedTurn = false;
+    alignmentInProgress = false;
+    isPlacingCard = false;
+    selectedAgentIndex = null;
+    selectedCardIndex = null;
+    selectedSpecialIndex = null;
+    bonusDraw = 0;
+
+    playerAgents = [];
+    enemyAgents = [];
+    hand = [];
+    specialHand = [];
+    placedCards = [null, null, null];
+    enemyPlacedCards = [null, null, null];
+    actionDeck = [];
+    discardDeck = [];
+    justDiedPlayer = [false, false, false];
+    justDiedEnemy = [false, false, false];
+    selectedAgents = [];
+
+    hideDisconnectOverlay();
+
+    // Reset result
+    const resultDiv = document.getElementById("result");
+    resultDiv.classList.remove("win", "lose");
+    resultDiv.innerText = "";
+
+    // Reset turn indicator
+    document.getElementById("turn-indicator").style.display = "none";
+
+    // Reset confirm button
+    const btn = document.getElementById("confirm-btn");
+    btn.disabled = false;
+    btn.innerText = "Confirm Turn";
+
+    // Show agent selection, hide game
+    document.getElementById("game").style.display = "none";
+    document.getElementById("deck-info").style.display = "none";
+    document.getElementById("agent-selection").style.display = "block";
+
+    // Reset lobby UI
+    document.getElementById("lobby-menu").style.display = "block";
+    document.getElementById("waiting-menu").style.display = "none";
+    document.getElementById("create-btn").disabled = true;
+    document.getElementById("join-btn").disabled = true;
+    document.getElementById("status-text").innerText = "Select 3 Agents to Play";
+    document.getElementById("join-code-input").value = "";
+    document.getElementById("wait-status").innerText = "Waiting...";
+
+    // Re-draw agent choices
+    shuffle(agentDeck);
+    drawAgentChoices();
+}
+
+// Called from the disconnect overlay button
+window.returnToMenu = function() {
+    resetAllState();
+};
+
+// =====================
+// STALE ROOM CLEANUP (runs on page load)
+// =====================
+async function cleanupStaleRooms() {
+    try {
+        const snapshot = await get(ref(db, 'rooms'));
+        if (!snapshot.exists()) return;
+
+        const now = Date.now();
+        const rooms = snapshot.val();
+
+        for (const [code, room] of Object.entries(rooms)) {
+            const age = now - (room.createdAt || 0);
+            const status = room.status || '';
+            const presence = room.presence || {};
+
+            // Waiting rooms older than 5 minutes — nobody joined
+            if (status === 'waiting' && age > 5 * 60 * 1000) {
+                remove(ref(db, 'rooms/' + code));
+                continue;
+            }
+
+            // Playing rooms where BOTH players are offline and room is older than 3 minutes
+            if (status === 'playing') {
+                const p1Online = presence.p1 && presence.p1.online === true;
+                const p2Online = presence.p2 && presence.p2.online === true;
+                if (!p1Online && !p2Online && age > 3 * 60 * 1000) {
+                    remove(ref(db, 'rooms/' + code));
+                    continue;
+                }
+            }
+
+            // Catch-all: any room older than 15 minutes
+            if (age > 15 * 60 * 1000) {
+                remove(ref(db, 'rooms/' + code));
+            }
+        }
+    } catch(e) {
+        // Silent fail — cleanup is best-effort
+    }
 }
 
 // =====================
@@ -1092,49 +1439,40 @@ window.createRoom = async function() {
 
     if (exists) { showToast("Couldn't generate code. Try again."); return; }
 
- roomRef = ref(db, 'rooms/' + code);
+    roomRef = ref(db, 'rooms/' + code);
 
-// ✅ Auto delete when host disconnects
-onDisconnect(roomRef).remove();
+    // While waiting: if host disconnects, remove room immediately
+    // (no guest exists yet to show a message to)
+    onDisconnect(roomRef).remove();
 
-const initialState = {
-    status: "waiting",
-    createdAt: Date.now(),
-    host: { agents: playerAgents },
-    guest: { agents: [] },
-    turn: 1,
-    gameState: {
-        p1: { agents: playerAgents, placed: [null,null,null], confirmed: false },
-        p2: { agents: [], placed: [null,null,null], confirmed: false }
-    }
-};
-
-set(roomRef, initialState);
-
-// ✅ ADD THIS (timeout cleanup)
-setTimeout(() => {
-    get(roomRef).then(snapshot => {
-        if (!snapshot.exists()) return;
-
-        const data = snapshot.val();
-
-        if (data.status === "waiting") {
-            remove(roomRef);
+    const initialState = {
+        status: "waiting",
+        createdAt: Date.now(),
+        host: { agents: playerAgents },
+        guest: { agents: [] },
+        turn: 1,
+        presence: {
+            p1: { online: true, lastSeen: Date.now() }
+        },
+        gameState: {
+            p1: { agents: playerAgents, placed: [null,null,null], confirmed: false },
+            p2: { agents: [], placed: [null,null,null], confirmed: false }
         }
-    });
-}, 30000); // 30 seconds
+    };
 
-// UI stuff
-document.getElementById('lobby-menu').style.display = 'none';
-document.getElementById('waiting-menu').style.display = 'block';
-document.getElementById('room-code-display').innerText = code;
+    await set(roomRef, initialState);
 
-listenForGameStart();
+    // UI
+    document.getElementById('lobby-menu').style.display = 'none';
+    document.getElementById('waiting-menu').style.display = 'block';
+    document.getElementById('room-code-display').innerText = code;
+
+    listenForGameStart();
 };
 
 window.joinRoom = function() {
     if (selectedAgents.length !== 3) return;
-    const roomId = document.getElementById('join-code-input').value.trim();
+    const roomId = document.getElementById('join-code-input').value.trim().toUpperCase();
     if (!roomId) { showToast("Enter a Room Code!"); return; }
 
     const r = ref(db, 'rooms/' + roomId);
@@ -1149,20 +1487,28 @@ window.joinRoom = function() {
         roomRef = r;
 
         playerAgents = selectedAgents.map(a => ({ name: a, hp: 100 }));
-        enemyAgents = data.host.agents; 
+        enemyAgents = data.host.agents;
         generateSpecialHand();
         initDecks();
+
+        // Set guest presence onDisconnect BEFORE writing online status
+        onDisconnect(child(roomRef, 'presence/p2')).set({ online: false, lastSeen: Date.now() });
 
         const updates = {
             guest: { agents: playerAgents },
             status: "playing",
+            ['presence/p2']: { online: true, lastSeen: Date.now() },
             ['gameState/p2']: { agents: playerAgents, placed: [null,null,null], confirmed: false }
         };
 
-        update(r, updates);
+        update(r, updates).then(() => {
+            // Start heartbeat and presence monitoring
+            startHeartbeat();
+            setupPresenceMonitoring();
 
-        startGameLocal();
-        listenForUpdates();
+            startGameLocal();
+            listenForUpdates();
+        }).catch(err => showToast("Error: " + err.message));
     }).catch(err => showToast("Error: " + err.message));
 };
 
@@ -1172,22 +1518,53 @@ window.copyCode = function() {
 };
 
 function listenForGameStart() {
-    onValue(roomRef, (snapshot) => {
+    const unsub = onValue(roomRef, (snapshot) => {
         const data = snapshot.val();
-        if (!data) return;
-        
-        if (isHost && data.status === "playing" && !enemyAgents.length) {
+        if (!data) {
+            // Room was deleted (host disconnected during waiting, or stale cleanup)
+            if (!gameOver && !opponentLeftDetected) {
+                stopAllMonitoring();
+                detachAllListeners();
+                roomRef = null;
+                showToast("Room no longer exists.", "#ff4444");
+                resetAllState();
+            }
+            return;
+        }
+
+        if (isHost && data.status === "playing" && enemyAgents.length === 0 && data.guest && data.guest.agents.length > 0) {
             enemyAgents = data.guest.agents;
+
+            // === SWITCH DISCONNECT BEHAVIOR ===
+            // Cancel the waiting-phase onDisconnect(roomRef).remove()
+            onDisconnect(roomRef).cancel().catch(() => {});
+
+            // Set presence-based onDisconnect (don't remove room, let opponent detect)
+            onDisconnect(child(roomRef, 'presence/p1')).set({ online: false, lastSeen: Date.now() });
+
+            // Write initial presence
+            update(child(roomRef, 'presence/p1'), { online: true, lastSeen: Date.now() }).catch(() => {});
+
+            // Start heartbeat and presence monitoring
+            startHeartbeat();
+            setupPresenceMonitoring();
+
             startGameLocal();
-            listenForUpdates(); 
+            listenForUpdates();
+
+            // Stop listening for game start (no longer needed)
+            unsub();
         }
     });
+    unsubscribers.push(unsub);
 }
 
 function listenForUpdates() {
     const gameStateRef = child(roomRef, 'gameState');
     
-    onValue(gameStateRef, (snapshot) => {
+    const unsub = onValue(gameStateRef, (snapshot) => {
+        if (gameOver || opponentLeftDetected) return;
+
         const state = snapshot.val();
         if (!state) return;
 
@@ -1195,6 +1572,7 @@ function listenForUpdates() {
         const oppData = state[oppId];
         const myData = state[myId];
 
+        // Sync enemy agent HP changes (combat results from opponent's perspective)
         if (oppData && oppData.agents && !alignmentInProgress) {
             let changed = false;
             for (let i = 0; i < 3; i++) {
@@ -1214,13 +1592,15 @@ function listenForUpdates() {
             }
         }
 
+        // Both confirmed → resolve turn
         if (myData && oppData && myData.confirmed && oppData.confirmed && !gameOver) {
             enemyPlacedCards = oppData.placed || [null,null,null];
             resolveMultiplayerTurn();
         }
         
+        // Turn indicator
         const indicator = document.getElementById("turn-indicator");
-        if (myData && oppData) {
+        if (myData && oppData && !opponentLeftDetected) {
             if (myData.confirmed && !oppData.confirmed) {
                 indicator.innerText = "Waiting for Opponent...";
                 indicator.style.display = "block";
@@ -1232,6 +1612,7 @@ function listenForUpdates() {
             }
         }
     });
+    unsubscribers.push(unsub);
 }
 
 function autoAlignIfNeeded() {
@@ -1290,7 +1671,7 @@ function startGameLocal() {
 // ACTIONS
 // =====================
 window.selectAgentSwap = function(i) {
-    if (confirmedTurn) return;
+    if (confirmedTurn || opponentLeftDetected) return;
     let lanes = document.getElementById("lanes").children;
     if (selectedAgentIndex === null) {
         if (playerAgents[i].hp === 0) return;
@@ -1330,10 +1711,9 @@ window.selectAgentSwap = function(i) {
 }
 
 window.placeCard = function(i) {
-    if (isPlacingCard || confirmedTurn) return false;
+    if (isPlacingCard || confirmedTurn || opponentLeftDetected) return false;
     if (selectedCardIndex === null && selectedSpecialIndex === null) return false;
 
-    // Validate slot — show toast and CLEAR selection so no alert loop
     if (playerAgents[i].hp === 0) { showToast("Your agent is dead!"); clearCardSelection(); return false; }
     if (enemyAgents[i].hp === 0) { showToast("No enemy here!"); clearCardSelection(); return false; }
     if (!canPlaceCard(i)) { showToast("Cannot place here — must face an enemy!"); clearCardSelection(); return false; }
@@ -1349,7 +1729,6 @@ window.placeCard = function(i) {
     if (wasSpecial) specialHand.splice(removalIndex, 1);
     else hand.splice(removalIndex, 1);
 
-    // Draw 2 Logic
     if (card === "Draw2 (Initiator)") {
         bonusDraw += 2;
         sfxPlace.currentTime = 0; sfxPlace.play().catch(()=>{});
@@ -1369,7 +1748,7 @@ window.placeCard = function(i) {
 };
 
 window.confirmTurn = function() {
-    if (gameOver || confirmedTurn) return;
+    if (gameOver || confirmedTurn || opponentLeftDetected) return;
     if (!isTurnValid()) { showToast("Invalid positioning! You cannot hide in an empty lane."); return; }
 
     confirmedTurn = true;
@@ -1383,33 +1762,20 @@ window.confirmTurn = function() {
     updateHandUI(false);
     updateSpecialHandUI();
 
-    const gameStateRef = child(roomRef, 'gameState');
-    
-    const updates = {};
-    updates[`${myId}/agents`] = playerAgents;
-    updates[`${myId}/placed`] = placedCards;
-    updates[`${myId}/confirmed`] = true;
-    
-    update(gameStateRef, updates);
+    syncGameUpdate();
 }
 
 // =====================
 // RESOLUTION
 // =====================
 async function resolveMultiplayerTurn() {
-    if (gameOver) return;
+    if (gameOver || opponentLeftDetected) return;
 
-    // 1. Reveal enemy cards
     revealEnemyCards();
     await new Promise(r => setTimeout(r, 1500)); 
 
-    // 2. Resolve combat
     resolveCombat();
-    
-    // 3. Check for win/loss
     checkWin();
-    
-    // 4. Update UI to show deaths
     updateAgentsUI();
     updateEnemyUI();
 
@@ -1418,52 +1784,33 @@ async function resolveMultiplayerTurn() {
         fadeOutActionCards();
         await new Promise(r => setTimeout(r, 400));
         
-        // 5. Auto-align agents
         await autoAlignAgents();
         
-        // 6. Discard placed action deck cards
         discardPlacedActionCards();
-        
-        // 7. Discard all remaining hand cards
         discardHand();
-        
-        // 8. Check if action deck needs reshuffling
         checkReshuffle();
-        
-        // 9. Draw fresh cards for next turn
         drawCards();
-        
-        // 10. Update deck info
         updateDeckInfo();
         
-        // 11. Reset turn state
         confirmedTurn = false;
         document.getElementById("confirm-btn").disabled = false;
         document.getElementById("confirm-btn").innerText = "Confirm Turn";
         updateBoardUI();
         updateHandUI(false);
 
-        // 12. Sync new state to database
-        const updates = {};
-        updates[`${myId}/confirmed`] = false;
-        updates[`${myId}/placed`] = [null,null,null];
-        updates[`${myId}/agents`] = playerAgents;
-        
-        update(child(roomRef, 'gameState'), updates);
+        syncGameUpdate();
     }
 }
 
 function syncGameUpdate() {
-    if (!roomRef) return;
-    
-    const gameStateRef = child(roomRef, 'gameState');
+    if (!roomRef || opponentLeftDetected) return;
     
     const updates = {};
     updates[`${myId}/agents`] = playerAgents;
     updates[`${myId}/placed`] = placedCards;
     updates[`${myId}/confirmed`] = confirmedTurn;
     
-    update(gameStateRef, updates);
+    update(child(roomRef, 'gameState'), updates).catch(() => {});
 }
 
 function generateSpecialHand() {
@@ -1572,7 +1919,7 @@ function updateHandUI(animate = false) {
         } else d.innerText = c;
         if (animate) setTimeout(() => d.classList.add("deal"), i * 150);
         d.onclick = () => {
-            if (confirmedTurn) return;
+            if (confirmedTurn || opponentLeftDetected) return;
             selectedCardIndex = i;
             selectedSpecialIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1580,7 +1927,7 @@ function updateHandUI(animate = false) {
         };
         d.draggable = true;
         d.addEventListener("dragstart", (e) => {
-            if (confirmedTurn) { e.preventDefault(); return; }
+            if (confirmedTurn || opponentLeftDetected) { e.preventDefault(); return; }
             selectedCardIndex = i;
             selectedSpecialIndex = null;
             e.dataTransfer.effectAllowed = "move";
@@ -1605,7 +1952,7 @@ function updateSpecialHandUI() {
             d.appendChild(img);
         } else d.innerText = card;
         d.onclick = () => {
-            if (confirmedTurn) return;
+            if (confirmedTurn || opponentLeftDetected) return;
             selectedSpecialIndex = i;
             selectedCardIndex = null;
             document.querySelectorAll("#hand .card, #special-hand .card").forEach(el => el.classList.remove("selected"));
@@ -1613,7 +1960,7 @@ function updateSpecialHandUI() {
         };
         d.draggable = true;
         d.addEventListener("dragstart", (e) => {
-            if (confirmedTurn) { e.preventDefault(); return; }
+            if (confirmedTurn || opponentLeftDetected) { e.preventDefault(); return; }
             selectedSpecialIndex = i;
             selectedCardIndex = null;
             e.dataTransfer.effectAllowed = "move";
@@ -1634,12 +1981,10 @@ function updateBoardUI() {
         slot.innerHTML = "";
         slot.classList.remove("place-slot");
         
-        // Click handler: pick up placed card OR place selected card
         slot.onclick = () => {
-            if (confirmedTurn) return;
+            if (confirmedTurn || opponentLeftDetected) return;
 
             if (placedCards[i]) {
-                // Pick up the card from the slot
                 let picked = placedCards[i];
                 let isSpecial = picked.card.includes("Sentinel") || picked.card.includes("Initiator") || picked.card.includes("Controller");
                 if (isSpecial) { specialHand.push(picked.card); selectedSpecialIndex = specialHand.length - 1; }
@@ -1661,7 +2006,6 @@ function updateBoardUI() {
             placeCard(i);
         };
 
-        // Drag-and-drop handlers
         slot.addEventListener("dragover", (e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = "move";
@@ -1676,7 +2020,7 @@ function updateBoardUI() {
             e.preventDefault();
             slot.style.borderColor = "";
             slot.style.boxShadow = "";
-            if (confirmedTurn) return;
+            if (confirmedTurn || opponentLeftDetected) return;
             if (placedCards[i]) return;
             if (selectedCardIndex === null && selectedSpecialIndex === null) return;
             placeCard(i);
@@ -1750,18 +2094,14 @@ function resolveCombat() {
         let enemySlot = lanes[j].children[0];
         let playerSlot = lanes[i].children[3];
 
-        // ATTACK VS ATTACK: No effect
         if (isAttack(pCard) && isAttack(eCard)) {
             continue;
         }
 
-        // =====================
-        // PLAYER ATTACK SECTION
-        // =====================
+        // PLAYER ATTACK
         if (pCard && pA.hp > 0 && eA.hp > 0 && isAttack(pCard)) {
             sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
 
-            // DEFLECT: bounce back to player
             if (eCard === "Deflect (Controller)") {
                 playerSlot.classList.add("hit");
                 setTimeout(() => playerSlot.classList.remove("hit"), 300);
@@ -1776,12 +2116,10 @@ function resolveCombat() {
                 continue;
             }
 
-            // BLOCK: attack does nothing
             if (eCard === "BlockAttack (Sentinel)") {
                 continue;
             }
 
-            // Enemy has compatible utility — 99 damage (100→1)
             if (isCompatible(eCard, eA.name)) {
                 enemySlot.classList.add("hit");
                 setTimeout(() => enemySlot.classList.remove("hit"), 300);
@@ -1794,7 +2132,6 @@ function resolveCombat() {
                 continue;
             }
 
-            // No card or incompatible — full kill
             enemySlot.classList.add("hit");
             setTimeout(() => enemySlot.classList.remove("hit"), 300);
             eA.hp = 0;
@@ -1803,13 +2140,10 @@ function resolveCombat() {
             triggerDeathAnimation(enemySlot);
         }
 
-        // =====================
-        // ENEMY ATTACK SECTION
-        // =====================
+        // ENEMY ATTACK
         if (eCard && eA.hp > 0 && pA.hp > 0 && isAttack(eCard)) {
             sfxAttack.currentTime = 0; sfxAttack.play().catch(()=>{});
 
-            // DEFLECT: bounce back to enemy
             if (pCard === "Deflect (Controller)") {
                 enemySlot.classList.add("hit");
                 setTimeout(() => enemySlot.classList.remove("hit"), 300);
@@ -1824,12 +2158,10 @@ function resolveCombat() {
                 continue;
             }
 
-            // BLOCK: attack does nothing
             if (pCard === "BlockAttack (Sentinel)") {
                 continue;
             }
 
-            // Player has compatible utility — 99 damage
             if (isCompatible(pCard, pA.name)) {
                 playerSlot.classList.add("hit");
                 setTimeout(() => playerSlot.classList.remove("hit"), 300);
@@ -1842,7 +2174,6 @@ function resolveCombat() {
                 continue;
             }
 
-            // No card or incompatible — full kill
             playerSlot.classList.add("hit");
             setTimeout(() => playerSlot.classList.remove("hit"), 300);
             pA.hp = 0;
@@ -1880,12 +2211,22 @@ function checkWin() {
 
     if (!playerAlive || !enemyAlive) {
         gameOver = true;
+        stopHeartbeat();
+        if (staleCheckInterval) { clearInterval(staleCheckInterval); staleCheckInterval = null; }
+
         if (!playerAlive) {
             resultDiv.innerText = "YOU LOSE"; resultDiv.classList.add("lose");
         } else {
             resultDiv.innerText = "YOU WIN"; resultDiv.classList.add("win");
         }
-        if(isHost && roomRef) remove(roomRef);
+
+        // Delete room after 5 seconds so both players see the result
+        setTimeout(() => {
+            if (roomRef) {
+                remove(roomRef).catch(() => {});
+                roomRef = null;
+            }
+        }, 5000);
     }
 }
 
@@ -1893,6 +2234,7 @@ function checkWin() {
 // INIT
 // =====================
 drawAgentChoices();
+cleanupStaleRooms();
 </script>
 </body>
 </html>
