@@ -630,7 +630,8 @@ transition: all 0.4s ease;
 <!-- FIREBASE MODULE SCRIPT -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getDatabase, ref, set, get, onValue, update, push, remove, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, update, push, remove, child, onDisconnect } 
+from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 const firebaseConfig = {
     apiKey: "AIzaSyC3KdYnUGBZa-9Ja2pC8aWP-90PnJAhd0U",
@@ -1091,15 +1092,14 @@ window.createRoom = async function() {
 
     if (exists) { showToast("Couldn't generate code. Try again."); return; }
 
-    roomRef = ref(db, 'rooms/' + code);
-    import { onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+ roomRef = ref(db, 'rooms/' + code);
 
-// Host deletes room on disconnect
+// ✅ Auto delete when host disconnects
 onDisconnect(roomRef).remove();
 
-   const initialState = {
+const initialState = {
     status: "waiting",
-    createdAt: Date.now(), // ✅ ADD THIS
+    createdAt: Date.now(),
     host: { agents: playerAgents },
     guest: { agents: [] },
     turn: 1,
@@ -1109,13 +1109,27 @@ onDisconnect(roomRef).remove();
     }
 };
 
-    set(roomRef, initialState);
+set(roomRef, initialState);
 
-    document.getElementById('lobby-menu').style.display = 'none';
-    document.getElementById('waiting-menu').style.display = 'block';
-    document.getElementById('room-code-display').innerText = code;
+// ✅ ADD THIS (timeout cleanup)
+setTimeout(() => {
+    get(roomRef).then(snapshot => {
+        if (!snapshot.exists()) return;
 
-    listenForGameStart();
+        const data = snapshot.val();
+
+        if (data.status === "waiting") {
+            remove(roomRef);
+        }
+    });
+}, 30000); // 30 seconds
+
+// UI stuff
+document.getElementById('lobby-menu').style.display = 'none';
+document.getElementById('waiting-menu').style.display = 'block';
+document.getElementById('room-code-display').innerText = code;
+
+listenForGameStart();
 };
 
 window.joinRoom = function() {
